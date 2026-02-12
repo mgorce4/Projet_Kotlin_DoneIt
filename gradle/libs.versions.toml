@@ -9,6 +9,7 @@ activityCompose = "1.12.2"
 kotlin = "2.0.21"
 composeBom = "2024.09.00"
 navigationCompose = "2.7.3"
+room = "2.8.4"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -26,6 +27,14 @@ androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-
 androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
 androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
 android-navigation-compose = {group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose"}
+room = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
+roomCompiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
+roomKtx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
+roomRxjava2 = { group = "androidx.room", name = "room-rxjava2", version.ref = "room" }
+roomRxjava3 = { group = "androidx.room", name = "room-rxjava3", version.ref = "room" }
+roomGuava = { group = "androidx.room", name = "room-guava", version.ref = "room" }
+roomTesting = { group = "androidx.room", name = "room-testing", version.ref = "room" }
+roomPaging = { group = "androidx.room", name = "room-paging", version.ref = "room" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

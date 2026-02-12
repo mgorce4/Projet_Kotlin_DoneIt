@@ -54,4 +54,16 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+    // Room Database dependencies (using version catalog)
+    implementation(libs.room)
+    implementation(libs.roomKtx)
+    implementation(libs.roomRxjava2)
+    implementation(libs.roomRxjava3)
+    implementation(libs.roomGuava)
+    testImplementation(libs.roomTesting)
+    implementation(libs.roomPaging)
+    // Annotation processor for Java
+    annotationProcessor(libs.roomCompiler)
+    // KSP for Kotlin (if using KSP plugin, see documentation)
+    // ksp(libs.roomCompiler)
 }
