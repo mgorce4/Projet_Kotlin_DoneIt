@@ -10,7 +10,10 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
 import com.example.doneit.ui.theme.DoneItTheme
 
 class MainActivity : ComponentActivity() {
@@ -20,10 +23,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             DoneItTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    Greeting(
-                        name = "Android",
-                        modifier = Modifier.padding(innerPadding)
-                    )
+                    AppNavigation(modifier = Modifier.padding(innerPadding))
                 }
             }
         }
@@ -31,17 +31,40 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun Greeting(name: String, modifier: Modifier = Modifier) {
-    Text(
-        text = "Hello $name!",
-        modifier = modifier
-    )
+fun AppNavigation(modifier: Modifier = Modifier) {
+    val navController = rememberNavController()
+    NavHost(navController = navController, startDestination = "loading", modifier = modifier) {
+        composable("loading"){
+            LoadingScreen(navController = navController)
+        }
+        composable("home") {
+            HomeScreen(navController = navController)
+        }
+        composable("addTaskForm") {
+            AddTaskFormScreen(navController = navController)
+        }
+        composable("profile") {
+            ProfileScreen(navController = navController)
+        }
+    }
 }
 
-@Preview(showBackground = true)
 @Composable
-fun GreetingPreview() {
-    DoneItTheme {
-        Greeting("Android")
-    }
+fun HomeScreen(navController: NavHostController){
+    Text(text = "Home Screen")
+}
+
+@Composable
+fun LoadingScreen(navController: NavHostController){
+    Text(text = "Loading Screen")
+}
+
+@Composable
+fun AddTaskFormScreen(navController: NavHostController){
+    Text(text = "Add Task Form Screen")
+}
+
+@Composable
+fun ProfileScreen(navController: NavHostController){
+    Text(text = "Profile Screen")
 }
