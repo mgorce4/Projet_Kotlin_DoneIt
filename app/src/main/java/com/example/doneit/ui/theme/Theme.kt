@@ -1,6 +1,5 @@
 package com.example.doneit.ui.theme
 
-import android.app.Activity
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
@@ -12,25 +11,32 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
 
 private val DarkColorScheme = darkColorScheme(
-    primary = Purple80,
-    secondary = PurpleGrey80,
-    tertiary = Pink80
+    primary = MainPurple,
+    onPrimary = White,
+    background = DarkGrey,
+    onBackground = White,
+    surface = Grey,
+    onSurface = White,
+    secondary = LightPurple,
+    onSecondary = Black,
+    error = MainPurple, // Utilisation de MainPurple comme couleur d'erreur par défaut
+    onError = White,
+    tertiary = LightGrey
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = Purple40,
-    secondary = PurpleGrey40,
-    tertiary = Pink40
+    primary = MainPurple,
+    onPrimary = White,
+    background = White, // Fond principal blanc
+    onBackground = DarkGrey, // Texte principal foncé
+    surface = LightGrey, // Surfaces claires (inputs, cartes)
+    onSurface = DarkGrey, // Texte sur surface
+    secondary = LightPurple,
+    onSecondary = Black,
+    error = MainPurple,
+    onError = White,
+    tertiary = Grey // Pour éléments secondaires
 
-    /* Other default colors to override
-    background = Color(0xFFFFFBFE),
-    surface = Color(0xFFFFFBFE),
-    onPrimary = Color.White,
-    onSecondary = Color.White,
-    onTertiary = Color.White,
-    onBackground = Color(0xFF1C1B1F),
-    onSurface = Color(0xFF1C1B1F),
-    */
 )
 
 @Composable
