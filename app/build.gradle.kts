@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    id("com.google.devtools.ksp")
 }
 
 android {
@@ -62,8 +63,6 @@ dependencies {
     implementation(libs.roomGuava)
     testImplementation(libs.roomTesting)
     implementation(libs.roomPaging)
-    // Annotation processor for Java
-    annotationProcessor(libs.roomCompiler)
-    // KSP for Kotlin (if using KSP plugin, see documentation)
-    // ksp(libs.roomCompiler)
+    // KSP for Kotlin - Required for Room to generate code
+    ksp(libs.roomCompiler)
 }

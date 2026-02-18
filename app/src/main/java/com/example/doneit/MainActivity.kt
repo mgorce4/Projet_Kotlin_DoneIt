@@ -36,10 +36,16 @@ class MainActivity : ComponentActivity() {
     private lateinit var database: AppDatabase
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Initialize Room database with proper configuration
         database = Room.databaseBuilder(
             applicationContext,
-            AppDatabase::class.java, "doneit-db"
-        ).build()
+            AppDatabase::class.java,
+            "doneit-db"
+        )
+            .fallbackToDestructiveMigration(dropAllTables = true) // Permet de recréer la DB en cas de changement de schéma
+            .build()
+
         enableEdgeToEdge()
         setContent {
             val taskViewModel: TaskViewModel = viewModel(

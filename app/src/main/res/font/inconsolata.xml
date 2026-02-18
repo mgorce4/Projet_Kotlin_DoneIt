@@ -3,13 +3,13 @@
     <font
         android:fontStyle="normal"
         android:fontWeight="300"
-        android:font="@font/InconsolataLight" />
+        android:font="@font/inconsolata_light" />
     <font
         android:fontStyle="normal"
         android:fontWeight="400"
-        android:font="@font/InconsolataRegular" />
+        android:font="@font/inconsolata_regular" />
     <font
         android:fontStyle="normal"
         android:fontWeight="700"
-        android:font="@font/InconsolataBold" />
+        android:font="@font/inconsolata_bold" />
 </font-family>
