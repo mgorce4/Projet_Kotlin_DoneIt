@@ -4,15 +4,28 @@ import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import com.example.doneit.R
 
-val Inconsolata = FontFamily(Font(R.font.inconsolata))
+// Correction de la font pour utiliser le fontFamily XML (inconsolata.xml)
+val Inconsolata = FontFamily(
+    Font(R.font.inconsolata_regular, weight = FontWeight.Normal, style = FontStyle.Normal),
+    Font(R.font.inconsolata_light, weight = FontWeight.Light, style = FontStyle.Normal),
+    Font(R.font.inconsolata_bold, weight = FontWeight.Bold, style = FontStyle.Normal)
+)
 
 // Set of Material typography styles to start with
 val Typography = Typography(
-    bodyLarge = TextStyle(
+    displayMedium = TextStyle(
+        fontFamily = Inconsolata,
+        fontWeight = FontWeight.Normal,
+        fontSize = 36.sp,
+        lineHeight = 44.sp,
+        letterSpacing = 0.5.sp
+    ),
+    bodyMedium = TextStyle(
         fontFamily = Inconsolata,
         fontWeight = FontWeight.Normal,
         fontSize = 16.sp,

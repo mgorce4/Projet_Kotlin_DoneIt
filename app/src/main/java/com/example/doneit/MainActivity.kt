@@ -4,12 +4,16 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -21,6 +25,8 @@ import androidx.room.Room
 import com.example.doneit.data.AppDatabase
 import com.example.doneit.viewmodel.TaskViewModel
 import com.example.doneit.ui.theme.DoneItTheme
+import kotlinx.coroutines.delay
+import androidx.compose.foundation.shape.RoundedCornerShape
 
 class TaskViewModelFactory(private val taskDao: com.example.doneit.data.TaskDao) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -88,8 +94,56 @@ fun HomeScreen(navController: NavHostController, taskViewModel: TaskViewModel){
 }
 
 @Composable
-fun LoadingScreen(navController: NavHostController){
-    Text(text = "Loading Screen")
+fun LoadingScreen(navController: NavHostController) {
+    // Pour la navigation après 10 secondes
+    val alreadyNavigated = remember { mutableStateOf(false) }
+
+    // Lance le timer une seule fois
+    LaunchedEffect(Unit) {
+        delay(10_000)
+        if (!alreadyNavigated.value) {
+            alreadyNavigated.value = true
+            navController.navigate("home") {
+                popUpTo("loading") { inclusive = true }
+            }
+        }
+    }
+
+    // Gestion du clic pour passer à l'écran suivant
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .clickable(enabled = !alreadyNavigated.value) {
+                if (!alreadyNavigated.value) {
+                    alreadyNavigated.value = true
+                    navController.navigate("home") {
+                        popUpTo("loading") { inclusive = true }
+                    }
+                }
+            }
+    ) {
+
+        // logo
+        Box(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .background(
+                    color = MaterialTheme.colorScheme.primary,
+                    shape = RoundedCornerShape(10.dp)
+                )
+                .padding(horizontal = 28.dp, vertical = 26.dp)
+        ) {
+            Text(
+                text = "DoneIt!",
+                color = MaterialTheme.colorScheme.onPrimary,
+                style = MaterialTheme.typography.displayMedium,
+                modifier = Modifier.align(Alignment.Center)
+            )
+        }
+
+
+    }
 }
 
 @Composable
