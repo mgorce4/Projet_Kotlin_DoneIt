@@ -10,9 +10,9 @@ data class Task(
     val description: String?, // Optionnel
     val dateLimite: String?, // Optionnel
     val heureLimite: String?, // Optionnel
-    val priorite: Int = 0,
+    val priorite: Int?, // 1 (faible) à 5 (élevée) optionnel pour la première version la priorite n'étant pas mise en place
     val photoUrl: String? = null,
-    val xpReward: Int = 10,
+    val xpReward: Int? ,//Optionnel pour la première version la récompense en XP n'étant pas mise en place
     val status: TaskStatus = TaskStatus.TODO,
     val periodicity: PeriodicityType = PeriodicityType.NONE
 )

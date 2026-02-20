@@ -1,5 +1,7 @@
 package com.example.doneit
 
+import android.app.DatePickerDialog
+import android.app.TimePickerDialog
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -27,6 +29,32 @@ import com.example.doneit.viewmodel.TaskViewModel
 import com.example.doneit.ui.theme.DoneItTheme
 import kotlinx.coroutines.delay
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Surface
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.doneit.data.TaskStatus
+import com.example.doneit.data.Task
+import com.example.doneit.data.PeriodicityType
+import androidx.compose.ui.graphics.Color
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.ui.platform.LocalContext
+import java.util.Calendar
+import java.util.Locale
+import androidx.compose.ui.text.font.FontWeight
 
 class TaskViewModelFactory(private val taskDao: com.example.doneit.data.TaskDao) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -80,17 +108,243 @@ fun AppNavigation(modifier: Modifier = Modifier, taskViewModel: TaskViewModel) {
             HomeScreen(navController = navController, taskViewModel = taskViewModel)
         }
         composable("addTaskForm") {
-            AddTaskFormScreen(navController = navController)
+            AddTaskFormScreen(navController = navController, taskViewModel = taskViewModel)
         }
         composable("profile") {
-            ProfileScreen(navController = navController)
+            ProfileScreen(navController = navController, taskViewModel = taskViewModel)
         }
     }
 }
 
 @Composable
-fun HomeScreen(navController: NavHostController, taskViewModel: TaskViewModel){
-    Text(text = "Home Screen")
+fun HomeScreen(navController: NavHostController, taskViewModel: TaskViewModel) {
+    val tasks = taskViewModel.allTasks.collectAsStateWithLifecycle(initialValue = emptyList())
+    val todoTasks = tasks.value.filter { it.status == TaskStatus.TODO }
+    val overdueTasks = tasks.value.filter { it.status == TaskStatus.OVERDUE }
+    val doneTasks = tasks.value.filter { it.status == TaskStatus.DONE }
+
+    // Met à jour les tâches non faites dont la date de fin est dépassée
+    LaunchedEffect(tasks.value) {
+        tasks.value.filter { it.status == TaskStatus.TODO && it.dateLimite != null && it.heureLimite != null }
+            .forEach { task ->
+                val dateTime = task.dateLimite + " " + task.heureLimite
+                val formatter = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+                val endMillis = try { formatter.parse(dateTime)?.time ?: 0L } catch (_: Exception) { 0L }
+                if (endMillis > 0 && endMillis < System.currentTimeMillis()) {
+                    val updatedTask = task.copy(status = TaskStatus.OVERDUE)
+                    taskViewModel.updateTask(updatedTask)
+                }
+            }
+    }
+
+    var expandedDone by remember { mutableStateOf(true) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(16.dp)
+    ) {
+        // Header
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Top
+        ) {
+            Box(
+                modifier = Modifier
+                    .background(MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(10.dp))
+                    .padding(horizontal = 24.dp, vertical = 12.dp)
+            ) {
+                Text(
+                    text = "DoneIt!",
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    style = MaterialTheme.typography.displayMedium
+                )
+            }
+            IconButton(
+                onClick = { navController.navigate("profile") },
+                modifier = Modifier.size(48.dp)
+            ) {
+                Icon(Icons.Filled.Person, contentDescription = "Profile", tint = MaterialTheme.colorScheme.onSurface)
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Section Tâches à effectuer
+        Row(
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Tâches à effectuer",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.weight(1f))
+            IconButton(onClick = { navController.navigate("addTaskForm") }) {
+                Icon(Icons.Filled.Add, contentDescription = "Ajouter", tint = MaterialTheme.colorScheme.onSurface)
+            }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        if (todoTasks.isEmpty() && overdueTasks.isEmpty()) {
+            Text(
+                text = "Aucune tâche à effectuer",
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                style = MaterialTheme.typography.bodyMedium
+            )
+        } else {
+            Column {
+                overdueTasks.forEach { task ->
+                    TaskCard(
+                        task = task,
+                        color = MaterialTheme.colorScheme.primary,
+                        onCheck = { taskViewModel.completeTaskWithReward(task) }
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+                todoTasks.forEach { task ->
+                    TaskCard(
+                        task = task,
+                        color = MaterialTheme.colorScheme.secondary,
+                        onCheck = { taskViewModel.completeTaskWithReward(task) }
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(24.dp))
+        HorizontalDivider()
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Section Tâches effectuées
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "Tâches effectuées",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.weight(1f))
+            IconButton(onClick = { expandedDone = !expandedDone }) {
+                Icon(
+                    if (expandedDone) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                    contentDescription = if (expandedDone) "Réduire" else "Déplier",
+                    tint = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        if (doneTasks.isEmpty()) {
+            Text(
+                text = "Aucune tâche effectuée",
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                style = MaterialTheme.typography.bodyMedium
+            )
+        } else if (expandedDone) {
+            Column {
+                doneTasks.forEach { task ->
+                    DoneTaskCard(
+                        task = task,
+                        color = MaterialTheme.colorScheme.surface,
+                        onDelete = {
+                            // Décoche la tâche : repasse à TODO ou OVERDUE selon date
+                            val dateTime = task.dateLimite + " " + task.heureLimite
+                            val formatter = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+                            val endMillis = try { formatter.parse(dateTime)?.time ?: 0L } catch (_: Exception) { 0L }
+                            val newStatus = if (endMillis > 0 && endMillis < System.currentTimeMillis()) TaskStatus.OVERDUE else TaskStatus.TODO
+                            val updatedTask = task.copy(status = newStatus)
+                            taskViewModel.updateTask(updatedTask)
+                        }
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun TaskCard(task: Task, color: Color, onCheck: () -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = color),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = task.titre,
+                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+                Text(
+                    text = task.description ?: "Description...",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
+                )
+                Text(
+                    text = "Date limite : ${task.dateLimite ?: "dd/mm/yyyy"} ${task.heureLimite ?: "00h00"}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
+                )
+            }
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier
+                    .size(36.dp)
+                    .clickable { onCheck() }
+            ) {
+                // Checkbox non cochée
+            }
+        }
+    }
+}
+
+@Composable
+fun DoneTaskCard(task: Task, color: Color, onDelete: () -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = color),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = task.titre,
+                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+                Text(
+                    text = task.description ?: "Description...",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+                Text(
+                    text = "Date limite : ${task.dateLimite ?: "dd/mm/yyyy"} ${task.heureLimite ?: "00h00"}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+            }
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.secondary,
+                modifier = Modifier
+                    .size(36.dp)
+                    .clickable { onDelete() }
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    // Affiche une checkbox cochée (X) et permet de décocher
+                    Text("X", color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.bodyLarge)
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -146,12 +400,193 @@ fun LoadingScreen(navController: NavHostController) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddTaskFormScreen(navController: NavHostController){
-    Text(text = "Add Task Form Screen")
+fun AddTaskFormScreen(navController: NavHostController, taskViewModel: TaskViewModel) {
+    var titre by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") }
+    var dateLimite by remember { mutableStateOf("") }
+    var heureLimite by remember { mutableStateOf("") }
+    val context = LocalContext.current
+
+    val calendar = remember { Calendar.getInstance() }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(16.dp)
+    ) {
+        // Header
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Top
+        ) {
+            Box(
+                modifier = Modifier
+                    .background(MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(10.dp))
+                    .padding(horizontal = 24.dp, vertical = 12.dp)
+                    .clickable { navController.navigate("home") }
+            ) {
+                Text(
+                    text = "DoneIt!",
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    style = MaterialTheme.typography.displayMedium
+                )
+            }
+            IconButton(
+                onClick = { navController.navigate("profile") },
+                modifier = Modifier.size(48.dp)
+            ) {
+                Icon(Icons.Filled.Person, contentDescription = "Profile", tint = MaterialTheme.colorScheme.onSurface)
+            }
+        }
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Formulaire
+        Text(text = "Titre", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyLarge)
+        OutlinedTextField(
+            value = titre,
+            onValueChange = { titre = it },
+            placeholder = { Text("Titre ...") },
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                focusedPlaceholderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(text = "Description", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyLarge)
+        OutlinedTextField(
+            value = description,
+            onValueChange = { description = it },
+            placeholder = { Text("Description ...") },
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                focusedPlaceholderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(24.dp))
+        Text(text = "Fin de la tâche", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyLarge)
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+            Button(
+                onClick = {
+                    val dateListener = DatePickerDialog.OnDateSetListener { _, year, month, dayOfMonth ->
+                        val m = month + 1
+                        dateLimite = String.format(Locale.getDefault(), "%04d-%02d-%02d", year, m, dayOfMonth)
+                    }
+                    DatePickerDialog(
+                        context,
+                        dateListener,
+                        calendar.get(Calendar.YEAR),
+                        calendar.get(Calendar.MONTH),
+                        calendar.get(Calendar.DAY_OF_MONTH)
+                    ).show()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+            ) {
+                Text(
+                    text = if (dateLimite.isNotEmpty()) dateLimite else "Choisir la date",
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Button(
+                onClick = {
+                    val timeListener = TimePickerDialog.OnTimeSetListener { _, hour, minute ->
+                        heureLimite = String.format(Locale.getDefault(), "%02d:%02d", hour, minute)
+                    }
+                    TimePickerDialog(
+                        context,
+                        timeListener,
+                        calendar.get(Calendar.HOUR_OF_DAY),
+                        calendar.get(Calendar.MINUTE),
+                        true
+                    ).show()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+            ) {
+                Text(
+                    text = if (heureLimite.isNotEmpty()) heureLimite else "Choisir l'heure",
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(32.dp))
+        Button(
+            onClick = {
+                val task = Task(
+                    titre = titre,
+                    description = description,
+                    dateLimite = if (dateLimite.isNotEmpty()) dateLimite else null,
+                    heureLimite = if (heureLimite.isNotEmpty()) heureLimite else null,
+                    priorite = null,
+                    photoUrl = null,
+                    xpReward = null,
+                    status = TaskStatus.TODO,
+                    periodicity = PeriodicityType.NONE
+                )
+                taskViewModel.addTask(task)
+                navController.navigate("home") { popUpTo("addTaskForm") { inclusive = true } }
+            },
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+            modifier = Modifier.align(Alignment.CenterHorizontally)
+        ) {
+            Text("Valider", color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.bodyLarge)
+        }
+    }
 }
 
 @Composable
-fun ProfileScreen(navController: NavHostController){
-    Text(text = "Profile Screen")
+fun ProfileScreen(navController: NavHostController, taskViewModel: TaskViewModel) {
+    val tasks = taskViewModel.allTasks.collectAsStateWithLifecycle(initialValue = emptyList())
+    val doneCount = tasks.value.count { it.status == TaskStatus.DONE }
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(16.dp)
+    ) {
+        // Header avec logo DoneIt! qui retourne à HomeScreen
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Start,
+            verticalAlignment = Alignment.Top
+        ) {
+            Box(
+                modifier = Modifier
+                    .background(MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(10.dp))
+                    .padding(horizontal = 24.dp, vertical = 12.dp)
+                    .clickable { navController.navigate("home") }
+            ) {
+                Text(
+                    text = "DoneIt!",
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    style = MaterialTheme.typography.displayMedium
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(120.dp))
+        // Affichage du nombre de tâches effectuées
+        Box(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "Vous avez réalisé $doneCount tâche.s !",
+                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.bodyLarge
+            )
+        }
+    }
 }

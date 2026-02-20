@@ -44,4 +44,11 @@ class TaskViewModel(private val taskDao: TaskDao) : ViewModel() {
             taskDao.deleteTask(task)
         }
     }
+
+    // Mettre à jour une tâche (statut, etc.)
+    fun updateTask(task: Task) {
+        viewModelScope.launch {
+            taskDao.updateTask(task)
+        }
+    }
 }
