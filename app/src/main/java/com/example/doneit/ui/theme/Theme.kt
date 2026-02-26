@@ -19,7 +19,7 @@ private val DarkColorScheme = darkColorScheme(
     onSurface = White,
     secondary = LightPurple,
     onSecondary = Black,
-    error = MainPurple, // Utilisation de MainPurple comme couleur d'erreur par défaut
+    error = MainPurple,
     onError = White,
     tertiary = LightGrey
 )
@@ -27,22 +27,22 @@ private val DarkColorScheme = darkColorScheme(
 private val LightColorScheme = lightColorScheme(
     primary = MainPurple,
     onPrimary = White,
-    background = White, // Fond principal blanc
-    onBackground = DarkGrey, // Texte principal foncé
-    surface = LightGrey, // Surfaces claires (inputs, cartes)
-    onSurface = DarkGrey, // Texte sur surface
+    background = White,
+    onBackground = DarkGrey,
+    surface = LightGrey,
+    onSurface = DarkGrey,
     secondary = LightPurple,
     onSecondary = Black,
     error = MainPurple,
     onError = White,
-    tertiary = Grey // Pour éléments secondaires
+    tertiary = Grey
 
 )
 
 @Composable
 fun DoneItTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = false, // Désactive le dynamicColor pour forcer l'utilisation de ton thème
+    dynamicColor: Boolean = false, // Désactive le dynamicColor pour forcer l'utilisation de mes thèmes
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {

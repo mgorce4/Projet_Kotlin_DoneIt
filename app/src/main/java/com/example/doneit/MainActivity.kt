@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Edit
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.doneit.data.TaskStatus
 import com.example.doneit.data.Task
@@ -100,6 +101,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun AppNavigation(modifier: Modifier = Modifier, taskViewModel: TaskViewModel) {
     val navController = rememberNavController()
+    val tasks = taskViewModel.allTasks.collectAsStateWithLifecycle(initialValue = emptyList())
     NavHost(navController = navController, startDestination = "loading", modifier = modifier) {
         composable("loading"){
             LoadingScreen(navController = navController)
@@ -112,6 +114,12 @@ fun AppNavigation(modifier: Modifier = Modifier, taskViewModel: TaskViewModel) {
         }
         composable("profile") {
             ProfileScreen(navController = navController, taskViewModel = taskViewModel)
+        }
+        // Correction : passage de l'id de la tâche
+        composable("editTaskForm/{taskId}") { backStackEntry ->
+            val taskId = backStackEntry.arguments?.getString("taskId")?.toLongOrNull()
+            val editTask = tasks.value.find { it.id == taskId }
+            EditTaskFormScreen(navController = navController, taskViewModel = taskViewModel, taskToEdit = editTask)
         }
     }
 }
@@ -198,7 +206,10 @@ fun HomeScreen(navController: NavHostController, taskViewModel: TaskViewModel) {
                     TaskCard(
                         task = task,
                         color = MaterialTheme.colorScheme.primary,
-                        onCheck = { taskViewModel.completeTaskWithReward(task) }
+                        onCheck = { taskViewModel.completeTaskWithReward(task) },
+                        onEdit = {
+                            navController.navigate("editTaskForm/${task.id}")
+                        }
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                 }
@@ -206,7 +217,10 @@ fun HomeScreen(navController: NavHostController, taskViewModel: TaskViewModel) {
                     TaskCard(
                         task = task,
                         color = MaterialTheme.colorScheme.secondary,
-                        onCheck = { taskViewModel.completeTaskWithReward(task) }
+                        onCheck = { taskViewModel.completeTaskWithReward(task) },
+                        onEdit = {
+                            navController.navigate("editTaskForm/${task.id}")
+                        }
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                 }
@@ -263,7 +277,7 @@ fun HomeScreen(navController: NavHostController, taskViewModel: TaskViewModel) {
 }
 
 @Composable
-fun TaskCard(task: Task, color: Color, onCheck: () -> Unit) {
+fun TaskCard(task: Task, color: Color, onCheck: () -> Unit, onEdit: (() -> Unit)? = null) {
     Card(
         colors = CardDefaults.cardColors(containerColor = color),
         shape = RoundedCornerShape(12.dp),
@@ -290,14 +304,28 @@ fun TaskCard(task: Task, color: Color, onCheck: () -> Unit) {
                     color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
                 )
             }
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier
-                    .size(36.dp)
-                    .clickable { onCheck() }
-            ) {
-                // Checkbox non cochée
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                if (onEdit != null) {
+                    IconButton(
+                        onClick = { onEdit() },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Edit,
+                            contentDescription = "Modifier",
+                            tint = MaterialTheme.colorScheme.onPrimary
+                        )
+                    }
+                }
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clickable { onCheck() }
+                ) {
+                    // Checkbox non cochée
+                }
             }
         }
     }
@@ -587,6 +615,172 @@ fun ProfileScreen(navController: NavHostController, taskViewModel: TaskViewModel
                 color = MaterialTheme.colorScheme.onSurface,
                 style = MaterialTheme.typography.bodyLarge
             )
+        }
+        Spacer(modifier = Modifier.height(32.dp))
+        // Bouton pour vider la base de données
+        Button(
+            onClick = { taskViewModel.clearAllTasks() },
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+            modifier = Modifier.align(Alignment.CenterHorizontally)
+        ) {
+            Text(
+                text = "Vider toutes les tâches",
+                color = MaterialTheme.colorScheme.onError,
+                style = MaterialTheme.typography.bodyLarge
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EditTaskFormScreen(navController: NavHostController, taskViewModel: TaskViewModel, taskToEdit: Task?) {
+    var titre by remember { mutableStateOf(taskToEdit?.titre ?: "") }
+    var description by remember { mutableStateOf(taskToEdit?.description ?: "") }
+    var dateLimite by remember { mutableStateOf(taskToEdit?.dateLimite ?: "") }
+    var heureLimite by remember { mutableStateOf(taskToEdit?.heureLimite ?: "") }
+    val context = LocalContext.current
+
+    val calendar = remember { Calendar.getInstance() }
+
+    LaunchedEffect(taskToEdit) {
+        if (taskToEdit != null) {
+            titre = taskToEdit.titre
+            description = taskToEdit.description ?: ""
+            dateLimite = taskToEdit.dateLimite ?: ""
+            heureLimite = taskToEdit.heureLimite ?: ""
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(16.dp)
+    ) {
+        // Header
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Top
+        ) {
+            Box(
+                modifier = Modifier
+                    .background(MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(10.dp))
+                    .padding(horizontal = 24.dp, vertical = 12.dp)
+                    .clickable { navController.navigate("home") }
+            ) {
+                Text(
+                    text = "DoneIt!",
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    style = MaterialTheme.typography.displayMedium
+                )
+            }
+            IconButton(
+                onClick = { navController.navigate("profile") },
+                modifier = Modifier.size(48.dp)
+            ) {
+                Icon(Icons.Filled.Person, contentDescription = "Profile", tint = MaterialTheme.colorScheme.onSurface)
+            }
+        }
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Formulaire
+        Text(text = "Titre", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyLarge)
+        OutlinedTextField(
+            value = titre,
+            onValueChange = { titre = it },
+            placeholder = { Text("Titre ...") },
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                focusedPlaceholderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(text = "Description", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyLarge)
+        OutlinedTextField(
+            value = description,
+            onValueChange = { description = it },
+            placeholder = { Text("Description ...") },
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                focusedPlaceholderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(24.dp))
+        Text(text = "Fin de la tâche", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyLarge)
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+            Button(
+                onClick = {
+                    val dateListener = DatePickerDialog.OnDateSetListener { _, year, month, dayOfMonth ->
+                        val m = month + 1
+                        dateLimite = String.format(Locale.getDefault(), "%04d-%02d-%02d", year, m, dayOfMonth)
+                    }
+                    DatePickerDialog(
+                        context,
+                        dateListener,
+                        calendar.get(Calendar.YEAR),
+                        calendar.get(Calendar.MONTH),
+                        calendar.get(Calendar.DAY_OF_MONTH)
+                    ).show()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+            ) {
+                Text(
+                    text = if (dateLimite.isNotEmpty()) dateLimite else "Choisir la date",
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Button(
+                onClick = {
+                    val timeListener = TimePickerDialog.OnTimeSetListener { _, hour, minute ->
+                        heureLimite = String.format(Locale.getDefault(), "%02d:%02d", hour, minute)
+                    }
+                    TimePickerDialog(
+                        context,
+                        timeListener,
+                        calendar.get(Calendar.HOUR_OF_DAY),
+                        calendar.get(Calendar.MINUTE),
+                        true
+                    ).show()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+            ) {
+                Text(
+                    text = if (heureLimite.isNotEmpty()) heureLimite else "Choisir l'heure",
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(32.dp))
+        Button(
+            onClick = {
+                if (taskToEdit != null) {
+                    val updatedTask = taskToEdit.copy(
+                        titre = titre,
+                        description = description,
+                        dateLimite = if (dateLimite.isNotEmpty()) dateLimite else null,
+                        heureLimite = if (heureLimite.isNotEmpty()) heureLimite else null
+                    )
+                    taskViewModel.updateTask(updatedTask)
+                }
+                navController.navigate("home") { popUpTo("editTaskForm") { inclusive = true } }
+            },
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+            modifier = Modifier.align(Alignment.CenterHorizontally)
+        ) {
+            Text("Mettre à jour", color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.bodyLarge)
         }
     }
 }

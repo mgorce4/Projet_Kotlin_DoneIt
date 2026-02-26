@@ -51,4 +51,11 @@ class TaskViewModel(private val taskDao: TaskDao) : ViewModel() {
             taskDao.updateTask(task)
         }
     }
+
+    // Vider toutes les tâches de la base de données
+    fun clearAllTasks() {
+        viewModelScope.launch {
+            taskDao.deleteAllTasks()
+        }
+    }
 }
