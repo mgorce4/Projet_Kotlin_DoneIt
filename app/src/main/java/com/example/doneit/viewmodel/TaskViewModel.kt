@@ -6,12 +6,22 @@ import com.example.doneit.data.Task
 import com.example.doneit.data.TaskDao
 import com.example.doneit.data.TaskStatus
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
 class TaskViewModel(private val taskDao: TaskDao) : ViewModel() {
 
     // Lister toutes les tâches (Observé par l'UI)
     val allTasks: Flow<List<Task>> = taskDao.getAllTask()
+
+    // Signal pour déclencher l'effet waou dans l'UI
+    private val _waouEvent = MutableStateFlow<Task?>(null)
+    val waouEvent: StateFlow<Task?> = _waouEvent
+
+    // Signal pour déclencher une notif overdue dans l'UI
+    private val _overdueEvent = MutableStateFlow<Task?>(null)
+    val overdueEvent: StateFlow<Task?> = _overdueEvent
 
     // Ajouter une tâche
     fun addTask(task: Task) {
@@ -26,17 +36,24 @@ class TaskViewModel(private val taskDao: TaskDao) : ViewModel() {
             // On met à jour le statut dans la base
             val updatedTask = task.copy(status = TaskStatus.DONE)
             taskDao.updateTask(updatedTask)
-
-            // C'est ici que tu déclencheras l'effet Waou (vibreur/son) plus tard
-            effetWaou(updatedTask.status)
+            // Déclenche l'effet waou
+            _waouEvent.value = updatedTask
         }
     }
 
-    // Logique de l'effet Waou (à compléter avec le vibreur/son)
-    private fun effetWaou(status: TaskStatus) {
-        if (status == TaskStatus.DONE) {
-            println("DÉCLENCHER VIBREUR ET CONFETTIS !")
-        }
+    // Consommer l'événement Waou (pour ne pas le déclencher plusieurs fois)
+    fun consumeWaouEvent() {
+        _waouEvent.value = null
+    }
+
+    // Déclencher une notification de retard (overdue) pour une tâche
+    fun triggerOverdueNotification(task: Task) {
+        _overdueEvent.value = task
+    }
+
+    // Consommer l'événement de notification de retard
+    fun consumeOverdueEvent() {
+        _overdueEvent.value = null
     }
 
     fun deleteTaskManually(task: Task) {

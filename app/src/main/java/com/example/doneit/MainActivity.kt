@@ -1,11 +1,23 @@
 package com.example.doneit
 
+import android.Manifest
 import android.app.DatePickerDialog
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.app.TimePickerDialog
+import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -16,6 +28,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -55,9 +69,15 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.ui.platform.LocalContext
 import java.util.Calendar
 import java.util.Locale
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.sp
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.random.Random
 
 class TaskViewModelFactory(private val taskDao: com.example.doneit.data.TaskDao) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -69,10 +89,53 @@ class TaskViewModelFactory(private val taskDao: com.example.doneit.data.TaskDao)
     }
 }
 
+const val NOTIF_CHANNEL_ID = "doneit_overdue_channel"
+const val NOTIF_CHANNEL_NAME = "Tâches en retard"
+
+fun createNotificationChannel(context: Context) {
+    val channel = NotificationChannel(
+        NOTIF_CHANNEL_ID,
+        NOTIF_CHANNEL_NAME,
+        NotificationManager.IMPORTANCE_HIGH
+    ).apply {
+        description = "Alertes pour les tâches en retard"
+    }
+    val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    manager.createNotificationChannel(channel)
+}
+
+fun sendOverdueNotification(context: Context, task: Task) {
+    val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    val notif = NotificationCompat.Builder(context, NOTIF_CHANNEL_ID)
+        .setSmallIcon(android.R.drawable.ic_dialog_alert)
+        .setContentTitle("⚠️ Tâche en retard !")
+        .setContentText("Votre tâche \"${task.titre}\" est dépassée.")
+        .setPriority(NotificationCompat.PRIORITY_HIGH)
+        .setAutoCancel(true)
+        .build()
+    manager.notify(task.id.toInt(), notif)
+}
+
+fun vibrateDevice(context: Context) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        val vm = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+        vm.defaultVibrator.vibrate(
+            VibrationEffect.createWaveform(longArrayOf(0, 200, 100, 200, 100, 400), -1)
+        )
+    } else {
+        @Suppress("DEPRECATION")
+        val v = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        @Suppress("DEPRECATION")
+        v.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 200, 100, 200, 100, 400), -1))
+    }
+}
+
 class MainActivity : ComponentActivity() {
     private lateinit var database: AppDatabase
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        createNotificationChannel(this)
 
         // Initialize Room database with proper configuration
         database = Room.databaseBuilder(
@@ -80,7 +143,7 @@ class MainActivity : ComponentActivity() {
             AppDatabase::class.java,
             "doneit-db"
         )
-            .fallbackToDestructiveMigration(dropAllTables = true) // Permet de recréer la DB en cas de changement de schéma
+            .fallbackToDestructiveMigration(dropAllTables = true)
             .build()
 
         enableEdgeToEdge()
@@ -88,6 +151,21 @@ class MainActivity : ComponentActivity() {
             val taskViewModel: TaskViewModel = viewModel(
                 factory = TaskViewModelFactory(database.taskDao())
             )
+            // Demande permission notification (Android 13+)
+            val notifPermLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.RequestPermission()
+            ) {}
+            LaunchedEffect(Unit) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    if (ContextCompat.checkSelfPermission(
+                            this@MainActivity,
+                            Manifest.permission.POST_NOTIFICATIONS
+                        ) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                }
+            }
             DoneItTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     AppNavigation(
@@ -99,6 +177,91 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+
+// ── Confetti Waou Overlay ──────────────────────────────────────────────────
+
+private val confettiColors = listOf(
+    Color(0xFFFFD700), Color(0xFFFF6B6B), Color(0xFF4ECDC4),
+    Color(0xFF45B7D1), Color(0xFF96CEB4), Color(0xFFFECA57),
+    Color(0xFFFF9FF3), Color(0xFF54A0FF)
+)
+
+data class ConfettiPiece(
+    val x: Float, val y: Float,
+    val color: Color, val angle: Float,
+    val speed: Float, val size: Float
+)
+
+@Composable
+fun WaouOverlay(onDismiss: () -> Unit) {
+    val pieces = remember {
+        List(80) {
+            ConfettiPiece(
+                x = Random.nextFloat(),
+                y = Random.nextFloat() * -0.3f,
+                color = confettiColors.random(),
+                angle = Random.nextFloat() * 360f,
+                speed = 0.3f + Random.nextFloat() * 0.7f,
+                size = 8f + Random.nextFloat() * 14f
+            )
+        }
+    }
+    val progress = remember { Animatable(0f) }
+    val alpha = remember { Animatable(1f) }
+
+    LaunchedEffect(Unit) {
+        progress.animateTo(1f, animationSpec = tween(2200, easing = LinearEasing))
+        alpha.animateTo(0f, animationSpec = tween(400))
+        onDismiss()
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .clickable(enabled = false, onClick = {}),
+        contentAlignment = Alignment.Center
+    ) {
+        androidx.compose.foundation.Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .alpha(alpha.value)
+        ) {
+            pieces.forEach { p ->
+                val cx = p.x * size.width
+                val baseY = p.y * size.height
+                val cy = baseY + progress.value * size.height * 1.4f * p.speed
+                val rot = p.angle + progress.value * 360f * p.speed
+                val rad = Math.toRadians(rot.toDouble())
+                val dx = (cos(rad) * p.size).toFloat()
+                val dy = (sin(rad) * p.size).toFloat()
+                drawLine(
+                    color = p.color,
+                    start = androidx.compose.ui.geometry.Offset(cx - dx, cy - dy),
+                    end = androidx.compose.ui.geometry.Offset(cx + dx, cy + dy),
+                    strokeWidth = p.size * 0.5f
+                )
+            }
+        }
+        // Message central
+        Box(
+            modifier = Modifier
+                .alpha(if (progress.value < 0.7f) 1f else (1f - (progress.value - 0.7f) / 0.3f))
+                .background(Color(0xCC000000), RoundedCornerShape(16.dp))
+                .padding(horizontal = 32.dp, vertical = 20.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "🎉 Bravo ! Tâche accomplie !",
+                color = Color.White,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+// ── AppNavigation ──────────────────────────────────────────────────────────
 
 @Composable
 fun AppNavigation(modifier: Modifier = Modifier, taskViewModel: TaskViewModel) {
@@ -133,10 +296,47 @@ fun HomeScreen(navController: NavHostController, taskViewModel: TaskViewModel) {
     var doneFilter by remember { mutableStateOf("Aucun") }
     var expandedTodoFilter by remember { mutableStateOf(false) }
     var expandedDoneFilter by remember { mutableStateOf(false) }
+    var showWaou by remember { mutableStateOf(false) }
+
+    val context = LocalContext.current
+
+    // Observe l'événement Waou → vibration + confettis
+    val waouEvent by taskViewModel.waouEvent.collectAsStateWithLifecycle()
+    LaunchedEffect(waouEvent) {
+        if (waouEvent != null) {
+            vibrateDevice(context)
+            showWaou = true
+            taskViewModel.consumeWaouEvent()
+        }
+    }
+
+    // Observe les événements overdue → notification système
+    val overdueEvent by taskViewModel.overdueEvent.collectAsStateWithLifecycle()
+    LaunchedEffect(overdueEvent) {
+        if (overdueEvent != null) {
+            sendOverdueNotification(context, overdueEvent!!)
+            taskViewModel.consumeOverdueEvent()
+        }
+    }
+
+    // Alerte notif pour les tâches qui passent overdue
+    LaunchedEffect(tasks.value) {
+        tasks.value.filter { it.status == TaskStatus.TODO && it.dateLimite != null && it.heureLimite != null }
+            .forEach { task ->
+                val dateTime = task.dateLimite + " " + task.heureLimite
+                val formatter = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+                val endMillis = try { formatter.parse(dateTime)?.time ?: 0L } catch (_: Exception) { 0L }
+                if (endMillis > 0 && endMillis < System.currentTimeMillis()) {
+                    val updatedTask = task.copy(status = TaskStatus.OVERDUE)
+                    taskViewModel.updateTask(updatedTask)
+                    taskViewModel.triggerOverdueNotification(updatedTask)
+                }
+            }
+    }
 
     // Filtres pour tâches à effectuer
     val todoFilterOptions = listOf(
-        "Trier ?", "Date croissante", "Date décroissante", "Overdue", "Todo"
+        "Trier ?", "Date croissante", "Date décroissante", "En retard", "A faire"
     )
     // Filtres pour tâches effectuées
     val doneFilterOptions = listOf(
@@ -149,8 +349,8 @@ fun HomeScreen(navController: NavHostController, taskViewModel: TaskViewModel) {
             .sortedBy { it.dateLimite + it.heureLimite }
         "Date décroissante" -> tasks.value.filter { it.status == TaskStatus.TODO || it.status == TaskStatus.OVERDUE }
             .sortedByDescending { it.dateLimite + it.heureLimite }
-        "Overdue" -> tasks.value.filter { it.status == TaskStatus.OVERDUE }
-        "Todo" -> tasks.value.filter { it.status == TaskStatus.TODO }
+        "En retard" -> tasks.value.filter { it.status == TaskStatus.OVERDUE }
+        "A faire" -> tasks.value.filter { it.status == TaskStatus.TODO }
         else -> tasks.value.filter { it.status == TaskStatus.TODO || it.status == TaskStatus.OVERDUE }
     }
     val filteredDoneTasks = when (doneFilter) {
@@ -159,23 +359,10 @@ fun HomeScreen(navController: NavHostController, taskViewModel: TaskViewModel) {
         else -> tasks.value.filter { it.status == TaskStatus.DONE }
     }
 
-    // Met à jour les tâches non faites dont la date de fin est dépassée
-    LaunchedEffect(tasks.value) {
-        tasks.value.filter { it.status == TaskStatus.TODO && it.dateLimite != null && it.heureLimite != null }
-            .forEach { task ->
-                val dateTime = task.dateLimite + " " + task.heureLimite
-                val formatter = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
-                val endMillis = try { formatter.parse(dateTime)?.time ?: 0L } catch (_: Exception) { 0L }
-                if (endMillis > 0 && endMillis < System.currentTimeMillis()) {
-                    val updatedTask = task.copy(status = TaskStatus.OVERDUE)
-                    taskViewModel.updateTask(updatedTask)
-                }
-            }
-    }
-
     var expandedDone by remember { mutableStateOf(true) }
 
-    Column(
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
@@ -338,7 +525,12 @@ fun HomeScreen(navController: NavHostController, taskViewModel: TaskViewModel) {
                 }
             }
         }
-    }
+        }  // fin Column
+        // Overlay confettis "Effet Waou"
+        if (showWaou) {
+            WaouOverlay(onDismiss = { showWaou = false })
+        }
+    } // fin Box
 }
 
 @Composable
