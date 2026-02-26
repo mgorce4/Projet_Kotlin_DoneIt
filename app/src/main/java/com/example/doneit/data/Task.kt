@@ -14,5 +14,7 @@ data class Task(
     val photoUrl: String? = null,
     val xpReward: Int? ,//Optionnel pour la première version la récompense en XP n'étant pas mise en place
     val status: TaskStatus = TaskStatus.TODO,
-    val periodicity: PeriodicityType = PeriodicityType.NONE
+    val periodicity: PeriodicityType = PeriodicityType.NONE,
+    // Prochaine occurrence pour les tâches périodiques (format yyyy-MM-dd HH:mm)
+    val nextOccurrence: String? = null
 )

@@ -78,6 +78,8 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
@@ -111,7 +113,7 @@ fun sendOverdueNotification(context: Context, task: Task) {
     val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     val notif = NotificationCompat.Builder(context, NOTIF_CHANNEL_ID)
         .setSmallIcon(android.R.drawable.ic_dialog_alert)
-        .setContentTitle("⚠️ Tâche en retard !")
+        .setContentTitle("Tâche en retard !")
         .setContentText("Votre tâche \"${task.titre}\" est dépassée.")
         .setPriority(NotificationCompat.PRIORITY_HIGH)
         .setAutoCancel(true)
@@ -324,7 +326,7 @@ fun HomeScreen(navController: NavHostController, taskViewModel: TaskViewModel) {
 
     // Alerte notif pour les tâches qui passent overdue
     LaunchedEffect(tasks.value) {
-        tasks.value.filter { it.status == TaskStatus.TODO && it.dateLimite != null && it.heureLimite != null }
+        tasks.value.filter { it.status == TaskStatus.TODO && it.dateLimite != null && it.heureLimite != null && it.periodicity == PeriodicityType.NONE }
             .forEach { task ->
                 val dateTime = task.dateLimite + " " + task.heureLimite
                 val formatter = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
@@ -335,6 +337,9 @@ fun HomeScreen(navController: NavHostController, taskViewModel: TaskViewModel) {
                     taskViewModel.triggerOverdueNotification(updatedTask)
                 }
             }
+        // Reset les tâches périodiques DONE dont la prochaine occurrence est atteinte
+        tasks.value.filter { it.periodicity != PeriodicityType.NONE && it.status == TaskStatus.DONE }
+            .forEach { task -> taskViewModel.resetPeriodicTaskIfDue(task) }
     }
 
     // Filtres pour tâches à effectuer
@@ -621,11 +626,27 @@ fun TaskCard(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
                 )
-                Text(
-                    text = "Date limite : ${task.dateLimite ?: "dd/mm/yyyy"} ${task.heureLimite ?: "00h00"}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
-                )
+                if (task.periodicity != PeriodicityType.NONE) {
+                    val perioLabel = when (task.periodicity) {
+                        PeriodicityType.DAILY -> "Quotidienne"
+                        PeriodicityType.WEEKLY -> "Hebdomadaire"
+                        PeriodicityType.MONTHLY -> "Mensuelle"
+                        else -> ""
+                    }
+                    val nextDate = task.nextOccurrence
+                        ?: if (task.dateLimite != null && task.heureLimite != null) "${task.dateLimite} ${task.heureLimite}" else null
+                    Text(
+                        text = "$perioLabel — À faire pour le : ${nextDate ?: "Non défini"}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
+                    )
+                } else {
+                    Text(
+                        text = "Date limite : ${task.dateLimite ?: "dd/mm/yyyy"} ${task.heureLimite ?: "00h00"}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
+                    )
+                }
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Row {
@@ -712,11 +733,27 @@ fun DoneTaskCard(task: Task, color: Color, onDelete: () -> Unit, onHardDelete: (
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onPrimary
                 )
-                Text(
-                    text = "Date limite : ${task.dateLimite ?: "dd/mm/yyyy"} ${task.heureLimite ?: "00h00"}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onPrimary
-                )
+                if (task.periodicity != PeriodicityType.NONE) {
+                    val perioLabel = when (task.periodicity) {
+                        PeriodicityType.DAILY -> "Quotidienne"
+                        PeriodicityType.WEEKLY -> "Hebdomadaire"
+                        PeriodicityType.MONTHLY -> "Mensuelle"
+                        else -> ""
+                    }
+                    val nextDate = task.nextOccurrence
+                        ?: if (task.dateLimite != null && task.heureLimite != null) "${task.dateLimite} ${task.heureLimite}" else null
+                    Text(
+                        text = "$perioLabel — Prochaine : ${nextDate ?: "Non défini"}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
+                    )
+                } else {
+                    Text(
+                        text = "Date limite : ${task.dateLimite ?: "dd/mm/yyyy"} ${task.heureLimite ?: "00h00"}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                }
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Row {
@@ -805,121 +842,60 @@ fun LoadingScreen(navController: NavHostController) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+// ── Section périodicité réutilisable ──────────────────────────────────────
+
 @Composable
-fun AddTaskFormScreen(navController: NavHostController, taskViewModel: TaskViewModel) {
-    var titre by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
-    var dateLimite by remember { mutableStateOf("") }
-    var heureLimite by remember { mutableStateOf("") }
-    val context = LocalContext.current
+fun PeriodicitySection(
+    hasDeadline: Boolean,
+    onHasDeadlineChange: (Boolean) -> Unit,
+    dateLimite: String,
+    onDateClick: () -> Unit,
+    heureLimite: String,
+    onHeureClick: () -> Unit,
+    hasPeriodicity: Boolean,
+    onHasPeriodicityChange: (Boolean) -> Unit,
+    periodicity: PeriodicityType,
+    onPeriodicityChange: (PeriodicityType) -> Unit,
+    periodicityStartDate: String,
+    onPeriodicityDateClick: () -> Unit,
+    periodicityStartHeure: String,
+    onPeriodicityHeureClick: () -> Unit
+) {
+    var expandedPerioMenu by remember { mutableStateOf(false) }
+    val perioOptions = listOf(
+        PeriodicityType.DAILY to "Quotidienne",
+        PeriodicityType.WEEKLY to "Hebdomadaire",
+        PeriodicityType.MONTHLY to "Mensuelle"
+    )
 
-    val calendar = remember { Calendar.getInstance() }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .padding(16.dp)
-    ) {
-        // Header
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Top
-        ) {
-            Box(
-                modifier = Modifier
-                    .background(MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(10.dp))
-                    .padding(horizontal = 24.dp, vertical = 12.dp)
-                    .clickable { navController.navigate("home") }
-            ) {
-                Text(
-                    text = "DoneIt!",
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    style = MaterialTheme.typography.displayMedium
-                )
+    // ── Checkbox Date limite ──
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Checkbox(
+            checked = hasDeadline,
+            onCheckedChange = {
+                onHasDeadlineChange(it)
+                if (it) onHasPeriodicityChange(false)
             }
-            IconButton(
-                onClick = { navController.navigate("profile") },
-                modifier = Modifier.size(48.dp)
-            ) {
-                Icon(Icons.Filled.Person, contentDescription = "Profile", tint = MaterialTheme.colorScheme.onSurface)
-            }
-        }
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Formulaire
-        Text(text = "Titre", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyLarge)
-        OutlinedTextField(
-            value = titre,
-            onValueChange = { titre = it },
-            placeholder = { Text("Titre ...") },
-            colors = TextFieldDefaults.colors(
-                focusedContainerColor = MaterialTheme.colorScheme.surface,
-                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                focusedPlaceholderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-            ),
-            modifier = Modifier.fillMaxWidth()
         )
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(text = "Description", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyLarge)
-        OutlinedTextField(
-            value = description,
-            onValueChange = { description = it },
-            placeholder = { Text("Description ...") },
-            colors = TextFieldDefaults.colors(
-                focusedContainerColor = MaterialTheme.colorScheme.surface,
-                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                focusedPlaceholderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-            ),
-            modifier = Modifier.fillMaxWidth()
-        )
-        Spacer(modifier = Modifier.height(24.dp))
-        Text(text = "Fin de la tâche", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyLarge)
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+        Spacer(modifier = Modifier.width(4.dp))
+        Text("Date limite", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyLarge)
+    }
+    if (hasDeadline) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
-                onClick = {
-                    val dateListener = DatePickerDialog.OnDateSetListener { _, year, month, dayOfMonth ->
-                        val m = month + 1
-                        dateLimite = String.format(Locale.getDefault(), "%04d-%02d-%02d", year, m, dayOfMonth)
-                    }
-                    DatePickerDialog(
-                        context,
-                        dateListener,
-                        calendar.get(Calendar.YEAR),
-                        calendar.get(Calendar.MONTH),
-                        calendar.get(Calendar.DAY_OF_MONTH)
-                    ).show()
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                onClick = onDateClick,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                modifier = Modifier.weight(1f)
             ) {
                 Text(
                     text = if (dateLimite.isNotEmpty()) dateLimite else "Choisir la date",
                     color = MaterialTheme.colorScheme.onPrimary
                 )
             }
-            Spacer(modifier = Modifier.width(8.dp))
             Button(
-                onClick = {
-                    val timeListener = TimePickerDialog.OnTimeSetListener { _, hour, minute ->
-                        heureLimite = String.format(Locale.getDefault(), "%02d:%02d", hour, minute)
-                    }
-                    TimePickerDialog(
-                        context,
-                        timeListener,
-                        calendar.get(Calendar.HOUR_OF_DAY),
-                        calendar.get(Calendar.MINUTE),
-                        true
-                    ).show()
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                onClick = onHeureClick,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                modifier = Modifier.weight(1f)
             ) {
                 Text(
                     text = if (heureLimite.isNotEmpty()) heureLimite else "Choisir l'heure",
@@ -927,19 +903,194 @@ fun AddTaskFormScreen(navController: NavHostController, taskViewModel: TaskViewM
                 )
             }
         }
+        Spacer(modifier = Modifier.height(8.dp))
+    }
+
+    // ── Checkbox Périodicité ──
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Checkbox(
+            checked = hasPeriodicity,
+            onCheckedChange = {
+                onHasPeriodicityChange(it)
+                if (it) onHasDeadlineChange(false)
+            }
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Text("Tâche périodique", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyLarge)
+    }
+    if (hasPeriodicity) {
+        // Sélecteur de type de périodicité
+        Box {
+            val perioLabel = perioOptions.find { it.first == periodicity }?.second ?: "Choisir..."
+            Button(
+                onClick = { expandedPerioMenu = true },
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("$perioLabel", color = MaterialTheme.colorScheme.onPrimary)
+            }
+            DropdownMenu(expanded = expandedPerioMenu, onDismissRequest = { expandedPerioMenu = false }) {
+                perioOptions.forEach { (type, label) ->
+                    DropdownMenuItem(
+                        text = { Text(label) },
+                        onClick = { onPeriodicityChange(type); expandedPerioMenu = false }
+                    )
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            "Première occurrence :",
+            color = MaterialTheme.colorScheme.onSurface,
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = onPeriodicityDateClick,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = if (periodicityStartDate.isNotEmpty()) periodicityStartDate else "Choisir la date",
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+            }
+            Button(
+                onClick = onPeriodicityHeureClick,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = if (periodicityStartHeure.isNotEmpty()) periodicityStartHeure else "Choisir l'heure",
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+    }
+}
+
+// ── AddTaskFormScreen ─────────────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AddTaskFormScreen(navController: NavHostController, taskViewModel: TaskViewModel) {
+    var titre by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") }
+    // Date limite classique
+    var hasDeadline by remember { mutableStateOf(false) }
+    var dateLimite by remember { mutableStateOf("") }
+    var heureLimite by remember { mutableStateOf("") }
+    // Périodicité
+    var hasPeriodicity by remember { mutableStateOf(false) }
+    var periodicity by remember { mutableStateOf(PeriodicityType.WEEKLY) }
+    var periodicityStartDate by remember { mutableStateOf("") }
+    var periodicityStartHeure by remember { mutableStateOf("") }
+
+    val context = LocalContext.current
+    val calendar = remember { Calendar.getInstance() }
+    val scrollStateAdd = rememberScrollState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(16.dp)
+            .verticalScroll(scrollStateAdd)
+    ) {
+        // Header
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
+            Box(
+                modifier = Modifier
+                    .background(MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(10.dp))
+                    .padding(horizontal = 24.dp, vertical = 12.dp)
+                    .clickable { navController.navigate("home") }
+            ) {
+                Text("DoneIt!", color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.displayMedium)
+            }
+            IconButton(onClick = { navController.navigate("profile") }, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Filled.Person, contentDescription = "Profile", tint = MaterialTheme.colorScheme.onSurface)
+            }
+        }
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Titre
+        Text("Titre", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyLarge)
+        OutlinedTextField(
+            value = titre, onValueChange = { titre = it },
+            placeholder = { Text("Titre ...") },
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                unfocusedTextColor = MaterialTheme.colorScheme.onSurface
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Description
+        Text("Description", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyLarge)
+        OutlinedTextField(
+            value = description, onValueChange = { description = it },
+            placeholder = { Text("Description ...") },
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                unfocusedTextColor = MaterialTheme.colorScheme.onSurface
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Section périodicité
+        PeriodicitySection(
+            hasDeadline = hasDeadline,
+            onHasDeadlineChange = { hasDeadline = it },
+            dateLimite = dateLimite,
+            onDateClick = {
+                DatePickerDialog(context, { _, y, m, d ->
+                    dateLimite = String.format(Locale.getDefault(), "%04d-%02d-%02d", y, m + 1, d)
+                }, calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH), calendar.get(Calendar.DAY_OF_MONTH)).show()
+            },
+            heureLimite = heureLimite,
+            onHeureClick = {
+                TimePickerDialog(context, { _, h, min ->
+                    heureLimite = String.format(Locale.getDefault(), "%02d:%02d", h, min)
+                }, calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), true).show()
+            },
+            hasPeriodicity = hasPeriodicity,
+            onHasPeriodicityChange = { hasPeriodicity = it },
+            periodicity = periodicity,
+            onPeriodicityChange = { periodicity = it },
+            periodicityStartDate = periodicityStartDate,
+            onPeriodicityDateClick = {
+                DatePickerDialog(context, { _, y, m, d ->
+                    periodicityStartDate = String.format(Locale.getDefault(), "%04d-%02d-%02d", y, m + 1, d)
+                }, calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH), calendar.get(Calendar.DAY_OF_MONTH)).show()
+            },
+            periodicityStartHeure = periodicityStartHeure,
+            onPeriodicityHeureClick = {
+                TimePickerDialog(context, { _, h, min ->
+                    periodicityStartHeure = String.format(Locale.getDefault(), "%02d:%02d", h, min)
+                }, calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), true).show()
+            }
+        )
+
         Spacer(modifier = Modifier.height(32.dp))
         Button(
             onClick = {
                 val task = Task(
                     titre = titre,
-                    description = description,
-                    dateLimite = if (dateLimite.isNotEmpty()) dateLimite else null,
-                    heureLimite = if (heureLimite.isNotEmpty()) heureLimite else null,
-                    priorite = null,
-                    photoUrl = null,
-                    xpReward = null,
+                    description = description.ifBlank { null },
+                    dateLimite = if (hasDeadline && dateLimite.isNotEmpty()) dateLimite else null,
+                    heureLimite = if (hasDeadline && heureLimite.isNotEmpty()) heureLimite else null,
+                    priorite = null, photoUrl = null, xpReward = null,
                     status = TaskStatus.TODO,
-                    periodicity = PeriodicityType.NONE
+                    periodicity = if (hasPeriodicity) periodicity else PeriodicityType.NONE,
+                    nextOccurrence = if (hasPeriodicity && periodicityStartDate.isNotEmpty() && periodicityStartHeure.isNotEmpty())
+                        "$periodicityStartDate $periodicityStartHeure" else null
                 )
                 taskViewModel.addTask(task)
                 navController.navigate("home") { popUpTo("addTaskForm") { inclusive = true } }
@@ -1014,141 +1165,136 @@ fun ProfileScreen(navController: NavHostController, taskViewModel: TaskViewModel
 fun EditTaskFormScreen(navController: NavHostController, taskViewModel: TaskViewModel, taskToEdit: Task?) {
     var titre by remember { mutableStateOf(taskToEdit?.titre ?: "") }
     var description by remember { mutableStateOf(taskToEdit?.description ?: "") }
+    // Date limite
+    var hasDeadline by remember { mutableStateOf(taskToEdit?.periodicity == PeriodicityType.NONE && taskToEdit.dateLimite != null) }
     var dateLimite by remember { mutableStateOf(taskToEdit?.dateLimite ?: "") }
     var heureLimite by remember { mutableStateOf(taskToEdit?.heureLimite ?: "") }
-    val context = LocalContext.current
+    // Périodicité
+    var hasPeriodicity by remember { mutableStateOf(taskToEdit?.periodicity != PeriodicityType.NONE) }
+    var periodicity by remember { mutableStateOf(taskToEdit?.periodicity?.takeIf { it != PeriodicityType.NONE } ?: PeriodicityType.WEEKLY) }
+    var periodicityStartDate by remember { mutableStateOf(taskToEdit?.nextOccurrence?.substringBefore(" ") ?: taskToEdit?.dateLimite ?: "") }
+    var periodicityStartHeure by remember { mutableStateOf(taskToEdit?.nextOccurrence?.substringAfter(" ") ?: taskToEdit?.heureLimite ?: "") }
 
+    val context = LocalContext.current
     val calendar = remember { Calendar.getInstance() }
 
     LaunchedEffect(taskToEdit) {
         if (taskToEdit != null) {
             titre = taskToEdit.titre
             description = taskToEdit.description ?: ""
-            dateLimite = taskToEdit.dateLimite ?: ""
-            heureLimite = taskToEdit.heureLimite ?: ""
+            hasPeriodicity = taskToEdit.periodicity != PeriodicityType.NONE
+            hasDeadline = taskToEdit.periodicity == PeriodicityType.NONE && taskToEdit.dateLimite != null
+            if (hasPeriodicity) {
+                periodicity = taskToEdit.periodicity
+                periodicityStartDate = taskToEdit.nextOccurrence?.substringBefore(" ") ?: taskToEdit.dateLimite ?: ""
+                periodicityStartHeure = taskToEdit.nextOccurrence?.substringAfter(" ") ?: taskToEdit.heureLimite ?: ""
+            } else {
+                dateLimite = taskToEdit.dateLimite ?: ""
+                heureLimite = taskToEdit.heureLimite ?: ""
+            }
         }
     }
 
+    val scrollStateEdit = rememberScrollState()
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
             .padding(16.dp)
+            .verticalScroll(scrollStateEdit)
     ) {
         // Header
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Top
-        ) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
             Box(
                 modifier = Modifier
                     .background(MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(10.dp))
                     .padding(horizontal = 24.dp, vertical = 12.dp)
                     .clickable { navController.navigate("home") }
             ) {
-                Text(
-                    text = "DoneIt!",
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    style = MaterialTheme.typography.displayMedium
-                )
+                Text("DoneIt!", color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.displayMedium)
             }
-            IconButton(
-                onClick = { navController.navigate("profile") },
-                modifier = Modifier.size(48.dp)
-            ) {
+            IconButton(onClick = { navController.navigate("profile") }, modifier = Modifier.size(48.dp)) {
                 Icon(Icons.Filled.Person, contentDescription = "Profile", tint = MaterialTheme.colorScheme.onSurface)
             }
         }
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Formulaire
-        Text(text = "Titre", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyLarge)
+        // Titre
+        Text("Titre", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyLarge)
         OutlinedTextField(
-            value = titre,
-            onValueChange = { titre = it },
+            value = titre, onValueChange = { titre = it },
             placeholder = { Text("Titre ...") },
             colors = TextFieldDefaults.colors(
                 focusedContainerColor = MaterialTheme.colorScheme.surface,
                 unfocusedContainerColor = MaterialTheme.colorScheme.surface,
                 focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                focusedPlaceholderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                unfocusedTextColor = MaterialTheme.colorScheme.onSurface
             ),
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(modifier = Modifier.height(16.dp))
-        Text(text = "Description", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyLarge)
+
+        // Description
+        Text("Description", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyLarge)
         OutlinedTextField(
-            value = description,
-            onValueChange = { description = it },
+            value = description, onValueChange = { description = it },
             placeholder = { Text("Description ...") },
             colors = TextFieldDefaults.colors(
                 focusedContainerColor = MaterialTheme.colorScheme.surface,
                 unfocusedContainerColor = MaterialTheme.colorScheme.surface,
                 focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                focusedPlaceholderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                unfocusedTextColor = MaterialTheme.colorScheme.onSurface
             ),
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(modifier = Modifier.height(24.dp))
-        Text(text = "Fin de la tâche", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyLarge)
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-            Button(
-                onClick = {
-                    val dateListener = DatePickerDialog.OnDateSetListener { _, year, month, dayOfMonth ->
-                        val m = month + 1
-                        dateLimite = String.format(Locale.getDefault(), "%04d-%02d-%02d", year, m, dayOfMonth)
-                    }
-                    DatePickerDialog(
-                        context,
-                        dateListener,
-                        calendar.get(Calendar.YEAR),
-                        calendar.get(Calendar.MONTH),
-                        calendar.get(Calendar.DAY_OF_MONTH)
-                    ).show()
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
-            ) {
-                Text(
-                    text = if (dateLimite.isNotEmpty()) dateLimite else "Choisir la date",
-                    color = MaterialTheme.colorScheme.onPrimary
-                )
+
+        // Section périodicité
+        PeriodicitySection(
+            hasDeadline = hasDeadline,
+            onHasDeadlineChange = { hasDeadline = it },
+            dateLimite = dateLimite,
+            onDateClick = {
+                DatePickerDialog(context, { _, y, m, d ->
+                    dateLimite = String.format(Locale.getDefault(), "%04d-%02d-%02d", y, m + 1, d)
+                }, calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH), calendar.get(Calendar.DAY_OF_MONTH)).show()
+            },
+            heureLimite = heureLimite,
+            onHeureClick = {
+                TimePickerDialog(context, { _, h, min ->
+                    heureLimite = String.format(Locale.getDefault(), "%02d:%02d", h, min)
+                }, calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), true).show()
+            },
+            hasPeriodicity = hasPeriodicity,
+            onHasPeriodicityChange = { hasPeriodicity = it },
+            periodicity = periodicity,
+            onPeriodicityChange = { periodicity = it },
+            periodicityStartDate = periodicityStartDate,
+            onPeriodicityDateClick = {
+                DatePickerDialog(context, { _, y, m, d ->
+                    periodicityStartDate = String.format(Locale.getDefault(), "%04d-%02d-%02d", y, m + 1, d)
+                }, calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH), calendar.get(Calendar.DAY_OF_MONTH)).show()
+            },
+            periodicityStartHeure = periodicityStartHeure,
+            onPeriodicityHeureClick = {
+                TimePickerDialog(context, { _, h, min ->
+                    periodicityStartHeure = String.format(Locale.getDefault(), "%02d:%02d", h, min)
+                }, calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), true).show()
             }
-            Spacer(modifier = Modifier.width(8.dp))
-            Button(
-                onClick = {
-                    val timeListener = TimePickerDialog.OnTimeSetListener { _, hour, minute ->
-                        heureLimite = String.format(Locale.getDefault(), "%02d:%02d", hour, minute)
-                    }
-                    TimePickerDialog(
-                        context,
-                        timeListener,
-                        calendar.get(Calendar.HOUR_OF_DAY),
-                        calendar.get(Calendar.MINUTE),
-                        true
-                    ).show()
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
-            ) {
-                Text(
-                    text = if (heureLimite.isNotEmpty()) heureLimite else "Choisir l'heure",
-                    color = MaterialTheme.colorScheme.onPrimary
-                )
-            }
-        }
+        )
+
         Spacer(modifier = Modifier.height(32.dp))
         Button(
             onClick = {
                 if (taskToEdit != null) {
                     val updatedTask = taskToEdit.copy(
                         titre = titre,
-                        description = description,
-                        dateLimite = if (dateLimite.isNotEmpty()) dateLimite else null,
-                        heureLimite = if (heureLimite.isNotEmpty()) heureLimite else null
+                        description = description.ifBlank { null },
+                        dateLimite = if (hasDeadline && dateLimite.isNotEmpty()) dateLimite else null,
+                        heureLimite = if (hasDeadline && heureLimite.isNotEmpty()) heureLimite else null,
+                        periodicity = if (hasPeriodicity) periodicity else PeriodicityType.NONE,
+                        nextOccurrence = if (hasPeriodicity && periodicityStartDate.isNotEmpty() && periodicityStartHeure.isNotEmpty())
+                            "$periodicityStartDate $periodicityStartHeure" else null
                     )
                     taskViewModel.updateTask(updatedTask)
                 }
