@@ -144,29 +144,14 @@ fun HomeScreen(navController: NavHostController, taskViewModel: TaskViewModel) {
     )
 
     // Application des filtres
-    val filteredOverdueTasks: List<Task>
-    val filteredTodoTasks: List<Task>
-    when (todoFilter) {
-        "Overdue" -> {
-            filteredOverdueTasks = tasks.value.filter { it.status == TaskStatus.OVERDUE }.sortedByDescending { it.dateLimite + it.heureLimite }
-            filteredTodoTasks = emptyList()
-        }
-        "Todo" -> {
-            filteredOverdueTasks = emptyList()
-            filteredTodoTasks = tasks.value.filter { it.status == TaskStatus.TODO }.sortedByDescending { it.dateLimite + it.heureLimite }
-        }
-        "Date croissante" -> {
-            filteredOverdueTasks = tasks.value.filter { it.status == TaskStatus.OVERDUE }.sortedBy { it.dateLimite + it.heureLimite }
-            filteredTodoTasks = tasks.value.filter { it.status == TaskStatus.TODO }.sortedBy { it.dateLimite + it.heureLimite }
-        }
-        "Date décroissante" -> {
-            filteredOverdueTasks = tasks.value.filter { it.status == TaskStatus.OVERDUE }.sortedByDescending { it.dateLimite + it.heureLimite }
-            filteredTodoTasks = tasks.value.filter { it.status == TaskStatus.TODO }.sortedByDescending { it.dateLimite + it.heureLimite }
-        }
-        else -> {
-            filteredOverdueTasks = tasks.value.filter { it.status == TaskStatus.OVERDUE }
-            filteredTodoTasks = tasks.value.filter { it.status == TaskStatus.TODO }
-        }
+    val filteredTasksToDo: List<Task> = when (todoFilter) {
+        "Date croissante" -> tasks.value.filter { it.status == TaskStatus.TODO || it.status == TaskStatus.OVERDUE }
+            .sortedBy { it.dateLimite + it.heureLimite }
+        "Date décroissante" -> tasks.value.filter { it.status == TaskStatus.TODO || it.status == TaskStatus.OVERDUE }
+            .sortedByDescending { it.dateLimite + it.heureLimite }
+        "Overdue" -> tasks.value.filter { it.status == TaskStatus.OVERDUE }
+        "Todo" -> tasks.value.filter { it.status == TaskStatus.TODO }
+        else -> tasks.value.filter { it.status == TaskStatus.TODO || it.status == TaskStatus.OVERDUE }
     }
     val filteredDoneTasks = when (doneFilter) {
         "Date croissante" -> tasks.value.filter { it.status == TaskStatus.DONE }.sortedBy { it.dateLimite + it.heureLimite }
@@ -237,9 +222,9 @@ fun HomeScreen(navController: NavHostController, taskViewModel: TaskViewModel) {
                     text = todoFilter.takeIf { it != "Aucun" && it != "Trier ?" } ?: "Trier ?",
                     modifier = Modifier
                         .clickable { expandedTodoFilter = true }
-                        .background(MaterialTheme.colorScheme.secondary, RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
                         .padding(horizontal = 12.dp, vertical = 6.dp),
-                    color = MaterialTheme.colorScheme.onSecondary
+                    color = MaterialTheme.colorScheme.onPrimary
                 )
                 DropdownMenu(
                     expanded = expandedTodoFilter,
@@ -261,7 +246,7 @@ fun HomeScreen(navController: NavHostController, taskViewModel: TaskViewModel) {
             }
         }
         Spacer(modifier = Modifier.height(8.dp))
-        if (filteredTodoTasks.isEmpty() && filteredOverdueTasks.isEmpty()) {
+        if (filteredTasksToDo.isEmpty()) {
             Text(
                 text = "Aucune tâche à effectuer",
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
@@ -269,21 +254,10 @@ fun HomeScreen(navController: NavHostController, taskViewModel: TaskViewModel) {
             )
         } else {
             Column {
-                filteredOverdueTasks.forEach { task ->
+                filteredTasksToDo.forEach { task ->
                     TaskCard(
                         task = task,
-                        color = MaterialTheme.colorScheme.primary,
-                        onCheck = { taskViewModel.completeTaskWithReward(task) },
-                        onEdit = {
-                            navController.navigate("editTaskForm/${task.id}")
-                        }
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-                filteredTodoTasks.forEach { task ->
-                    TaskCard(
-                        task = task,
-                        color = MaterialTheme.colorScheme.secondary,
+                        color = if (task.status == TaskStatus.OVERDUE) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
                         onCheck = { taskViewModel.completeTaskWithReward(task) },
                         onEdit = {
                             navController.navigate("editTaskForm/${task.id}")
@@ -310,9 +284,9 @@ fun HomeScreen(navController: NavHostController, taskViewModel: TaskViewModel) {
                     text = doneFilter.takeIf { it != "Aucun" && it != "Trier ?" } ?: "Trier ?",
                     modifier = Modifier
                         .clickable { expandedDoneFilter = true }
-                        .background(MaterialTheme.colorScheme.secondary, RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
                         .padding(horizontal = 12.dp, vertical = 6.dp),
-                    color = MaterialTheme.colorScheme.onSecondary
+                    color = MaterialTheme.colorScheme.onPrimary
                 )
                 DropdownMenu(
                     expanded = expandedDoneFilter,
