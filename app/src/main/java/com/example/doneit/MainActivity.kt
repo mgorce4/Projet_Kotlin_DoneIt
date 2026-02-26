@@ -73,8 +73,11 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material.icons.filled.Delete
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
@@ -446,9 +449,8 @@ fun HomeScreen(navController: NavHostController, taskViewModel: TaskViewModel) {
                         task = task,
                         color = if (task.status == TaskStatus.OVERDUE) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
                         onCheck = { taskViewModel.completeTaskWithReward(task) },
-                        onEdit = {
-                            navController.navigate("editTaskForm/${task.id}")
-                        }
+                        onEdit = { navController.navigate("editTaskForm/${task.id}") },
+                        onDelete = { taskViewModel.deleteTaskManually(task) }
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                 }
@@ -512,14 +514,13 @@ fun HomeScreen(navController: NavHostController, taskViewModel: TaskViewModel) {
                         task = task,
                         color = MaterialTheme.colorScheme.surface,
                         onDelete = {
-                            // Décoche la tâche : repasse à TODO ou OVERDUE selon date
                             val dateTime = task.dateLimite + " " + task.heureLimite
                             val formatter = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
                             val endMillis = try { formatter.parse(dateTime)?.time ?: 0L } catch (_: Exception) { 0L }
                             val newStatus = if (endMillis > 0 && endMillis < System.currentTimeMillis()) TaskStatus.OVERDUE else TaskStatus.TODO
-                            val updatedTask = task.copy(status = newStatus)
-                            taskViewModel.updateTask(updatedTask)
-                        }
+                            taskViewModel.updateTask(task.copy(status = newStatus))
+                        },
+                        onHardDelete = { taskViewModel.deleteTaskManually(task) }
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                 }
@@ -533,8 +534,73 @@ fun HomeScreen(navController: NavHostController, taskViewModel: TaskViewModel) {
     } // fin Box
 }
 
+// ── Dialogue de confirmation suppression ────────────────────────────────────
 @Composable
-fun TaskCard(task: Task, color: Color, onCheck: () -> Unit, onEdit: (() -> Unit)? = null) {
+fun DeleteConfirmDialog(
+    taskTitle: String,
+    onConfirm: (neverAskAgain: Boolean) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var neverAskAgain by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Supprimer la tâche ?") },
+        text = {
+            Column {
+                Text("Voulez-vous vraiment supprimer \"$taskTitle\" ?")
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = neverAskAgain,
+                        onCheckedChange = { neverAskAgain = it }
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Ne plus demander", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(neverAskAgain) },
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+            ) { Text("Supprimer") }
+        },
+        dismissButton = {
+            Button(
+                onClick = onDismiss,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+            ) { Text("Annuler") }
+        }
+    )
+}
+
+// ── TaskCard ─────────────────────────────────────────────────────────────────
+@Composable
+fun TaskCard(
+    task: Task,
+    color: Color,
+    onCheck: () -> Unit,
+    onEdit: (() -> Unit)? = null,
+    onDelete: (() -> Unit)? = null
+) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("doneit_prefs", Context.MODE_PRIVATE) }
+    var showDialog by remember { mutableStateOf(false) }
+
+    if (showDialog) {
+        DeleteConfirmDialog(
+            taskTitle = task.titre,
+            onConfirm = { neverAskAgain ->
+                if (neverAskAgain) {
+                    prefs.edit().putBoolean("skip_delete_confirm", true).apply()
+                }
+                showDialog = false
+                onDelete?.invoke()
+            },
+            onDismiss = { showDialog = false }
+        )
+    }
+
     Card(
         colors = CardDefaults.cardColors(containerColor = color),
         shape = RoundedCornerShape(12.dp),
@@ -562,16 +628,33 @@ fun TaskCard(task: Task, color: Color, onCheck: () -> Unit, onEdit: (() -> Unit)
                 )
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                if (onEdit != null) {
-                    IconButton(
-                        onClick = { onEdit() },
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Edit,
-                            contentDescription = "Modifier",
-                            tint = MaterialTheme.colorScheme.onPrimary
-                        )
+                Row {
+                    if (onEdit != null) {
+                        IconButton(
+                            onClick = { onEdit() },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Edit,
+                                contentDescription = "Modifier",
+                                tint = MaterialTheme.colorScheme.onPrimary
+                            )
+                        }
+                    }
+                    if (onDelete != null) {
+                        IconButton(
+                            onClick = {
+                                val skip = prefs.getBoolean("skip_delete_confirm", false)
+                                if (skip) onDelete() else showDialog = true
+                            },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Delete,
+                                contentDescription = "Supprimer",
+                                tint = MaterialTheme.colorScheme.onPrimary
+                            )
+                        }
                     }
                 }
                 Surface(
@@ -588,8 +671,27 @@ fun TaskCard(task: Task, color: Color, onCheck: () -> Unit, onEdit: (() -> Unit)
     }
 }
 
+// ── DoneTaskCard ──────────────────────────────────────────────────────────────
 @Composable
-fun DoneTaskCard(task: Task, color: Color, onDelete: () -> Unit) {
+fun DoneTaskCard(task: Task, color: Color, onDelete: () -> Unit, onHardDelete: () -> Unit) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("doneit_prefs", Context.MODE_PRIVATE) }
+    var showDialog by remember { mutableStateOf(false) }
+
+    if (showDialog) {
+        DeleteConfirmDialog(
+            taskTitle = task.titre,
+            onConfirm = { neverAskAgain ->
+                if (neverAskAgain) {
+                    prefs.edit().putBoolean("skip_delete_confirm", true).apply()
+                }
+                showDialog = false
+                onHardDelete()
+            },
+            onDismiss = { showDialog = false }
+        )
+    }
+
     Card(
         colors = CardDefaults.cardColors(containerColor = color),
         shape = RoundedCornerShape(12.dp),
@@ -616,16 +718,34 @@ fun DoneTaskCard(task: Task, color: Color, onDelete: () -> Unit) {
                     color = MaterialTheme.colorScheme.onPrimary
                 )
             }
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.secondary,
-                modifier = Modifier
-                    .size(36.dp)
-                    .clickable { onDelete() }
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    // Affiche une checkbox cochée (X) et permet de décocher
-                    Text("X", color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.bodyLarge)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Row {
+                    // Icône poubelle pour suppression définitive
+                    IconButton(
+                        onClick = {
+                            val skip = prefs.getBoolean("skip_delete_confirm", false)
+                            if (skip) onHardDelete() else showDialog = true
+                        },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Delete,
+                            contentDescription = "Supprimer définitivement",
+                            tint = MaterialTheme.colorScheme.onPrimary
+                        )
+                    }
+                }
+                // Checkbox cochée pour décocher
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clickable { onDelete() }
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text("X", color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.bodyLarge)
+                    }
                 }
             }
         }
