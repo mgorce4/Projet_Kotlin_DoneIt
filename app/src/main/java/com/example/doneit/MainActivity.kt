@@ -324,22 +324,10 @@ fun HomeScreen(navController: NavHostController, taskViewModel: TaskViewModel) {
         }
     }
 
-    // Alerte notif pour les tâches qui passent overdue
-    LaunchedEffect(tasks.value) {
-        tasks.value.filter { it.status == TaskStatus.TODO && it.dateLimite != null && it.heureLimite != null && it.periodicity == PeriodicityType.NONE }
-            .forEach { task ->
-                val dateTime = task.dateLimite + " " + task.heureLimite
-                val formatter = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
-                val endMillis = try { formatter.parse(dateTime)?.time ?: 0L } catch (_: Exception) { 0L }
-                if (endMillis > 0 && endMillis < System.currentTimeMillis()) {
-                    val updatedTask = task.copy(status = TaskStatus.OVERDUE)
-                    taskViewModel.updateTask(updatedTask)
-                    taskViewModel.triggerOverdueNotification(updatedTask)
-                }
-            }
-        // Reset les tâches périodiques DONE dont la prochaine occurrence est atteinte
-        tasks.value.filter { it.periodicity != PeriodicityType.NONE && it.status == TaskStatus.DONE }
-            .forEach { task -> taskViewModel.resetPeriodicTaskIfDue(task) }
+    // Au chargement de l'écran, déclencher immédiatement un check complet
+    // (le ViewModel fait ensuite un polling toutes les 60s en autonomie)
+    LaunchedEffect(Unit) {
+        taskViewModel.checkAndUpdatePeriodicTasks()
     }
 
     // Filtres pour tâches à effectuer
