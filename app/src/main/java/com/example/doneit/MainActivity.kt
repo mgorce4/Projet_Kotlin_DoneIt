@@ -332,11 +332,13 @@ fun HomeScreen(navController: NavHostController, taskViewModel: TaskViewModel) {
 
     // Filtres pour tâches à effectuer
     val todoFilterOptions = listOf(
-        "Trier ?", "Date croissante", "Date décroissante", "En retard", "A faire"
+        "Trier ?", "Date croissante", "Date décroissante", "En retard", "A faire",
+        "Priorité ↓", "Priorité ↑"
     )
     // Filtres pour tâches effectuées
     val doneFilterOptions = listOf(
-        "Trier ?", "Date croissante", "Date décroissante"
+        "Trier ?", "Date croissante", "Date décroissante",
+        "Priorité ↓", "Priorité ↑"
     )
 
     // Application des filtres
@@ -347,11 +349,17 @@ fun HomeScreen(navController: NavHostController, taskViewModel: TaskViewModel) {
             .sortedByDescending { it.dateLimite + it.heureLimite }
         "En retard" -> tasks.value.filter { it.status == TaskStatus.OVERDUE }
         "A faire" -> tasks.value.filter { it.status == TaskStatus.TODO }
+        "Priorité ↓" -> tasks.value.filter { it.status == TaskStatus.TODO || it.status == TaskStatus.OVERDUE }
+            .sortedByDescending { it.priorite ?: 0 }
+        "Priorité ↑" -> tasks.value.filter { it.status == TaskStatus.TODO || it.status == TaskStatus.OVERDUE }
+            .sortedBy { it.priorite ?: Int.MAX_VALUE }
         else -> tasks.value.filter { it.status == TaskStatus.TODO || it.status == TaskStatus.OVERDUE }
     }
     val filteredDoneTasks = when (doneFilter) {
         "Date croissante" -> tasks.value.filter { it.status == TaskStatus.DONE }.sortedBy { it.dateLimite + it.heureLimite }
         "Date décroissante" -> tasks.value.filter { it.status == TaskStatus.DONE }.sortedByDescending { it.dateLimite + it.heureLimite }
+        "Priorité ↓" -> tasks.value.filter { it.status == TaskStatus.DONE }.sortedByDescending { it.priorite ?: 0 }
+        "Priorité ↑" -> tasks.value.filter { it.status == TaskStatus.DONE }.sortedBy { it.priorite ?: Int.MAX_VALUE }
         else -> tasks.value.filter { it.status == TaskStatus.DONE }
     }
 
@@ -1088,6 +1096,14 @@ fun AddTaskFormScreen(navController: NavHostController, taskViewModel: TaskViewM
     var periodicityStartDate by remember { mutableStateOf("") }
     var periodicityStartHeure by remember { mutableStateOf("") }
 
+    // Erreurs de validation
+    var titreError by remember { mutableStateOf(false) }
+    var temporaliteError by remember { mutableStateOf(false) }
+    var deadlineDateError by remember { mutableStateOf(false) }
+    var deadlineHeureError by remember { mutableStateOf(false) }
+    var perioDateError by remember { mutableStateOf(false) }
+    var perioHeureError by remember { mutableStateOf(false) }
+
     val context = LocalContext.current
     val calendar = remember { Calendar.getInstance() }
     val scrollStateAdd = rememberScrollState()
@@ -1116,10 +1132,13 @@ fun AddTaskFormScreen(navController: NavHostController, taskViewModel: TaskViewM
         Spacer(modifier = Modifier.height(24.dp))
 
         // Titre
-        Text("Titre", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyLarge)
+        Text("Titre *", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyLarge)
         OutlinedTextField(
-            value = titre, onValueChange = { titre = it },
+            value = titre,
+            onValueChange = { titre = it; titreError = false },
             placeholder = { Text("Titre ...") },
+            isError = titreError,
+            supportingText = if (titreError) {{ Text("Le titre est obligatoire", color = MaterialTheme.colorScheme.error) }} else null,
             colors = TextFieldDefaults.colors(
                 focusedContainerColor = MaterialTheme.colorScheme.surface,
                 unfocusedContainerColor = MaterialTheme.colorScheme.surface,
@@ -1152,42 +1171,81 @@ fun AddTaskFormScreen(navController: NavHostController, taskViewModel: TaskViewM
         )
 
         // Section périodicité
+        if (temporaliteError) {
+            Text(
+                text = "⚠ Choisissez une date limite ou une périodicité",
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
+        }
         PeriodicitySection(
             hasDeadline = hasDeadline,
-            onHasDeadlineChange = { hasDeadline = it },
+            onHasDeadlineChange = { hasDeadline = it; temporaliteError = false; deadlineDateError = false; deadlineHeureError = false },
             dateLimite = dateLimite,
             onDateClick = {
                 DatePickerDialog(context, { _, y, m, d ->
                     dateLimite = String.format(Locale.getDefault(), "%04d-%02d-%02d", y, m + 1, d)
+                    deadlineDateError = false
                 }, calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH), calendar.get(Calendar.DAY_OF_MONTH)).show()
             },
             heureLimite = heureLimite,
             onHeureClick = {
                 TimePickerDialog(context, { _, h, min ->
                     heureLimite = String.format(Locale.getDefault(), "%02d:%02d", h, min)
+                    deadlineHeureError = false
                 }, calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), true).show()
             },
             hasPeriodicity = hasPeriodicity,
-            onHasPeriodicityChange = { hasPeriodicity = it },
+            onHasPeriodicityChange = { hasPeriodicity = it; temporaliteError = false; perioDateError = false; perioHeureError = false },
             periodicity = periodicity,
             onPeriodicityChange = { periodicity = it },
             periodicityStartDate = periodicityStartDate,
             onPeriodicityDateClick = {
                 DatePickerDialog(context, { _, y, m, d ->
                     periodicityStartDate = String.format(Locale.getDefault(), "%04d-%02d-%02d", y, m + 1, d)
+                    perioDateError = false
                 }, calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH), calendar.get(Calendar.DAY_OF_MONTH)).show()
             },
             periodicityStartHeure = periodicityStartHeure,
             onPeriodicityHeureClick = {
                 TimePickerDialog(context, { _, h, min ->
                     periodicityStartHeure = String.format(Locale.getDefault(), "%02d:%02d", h, min)
+                    perioHeureError = false
                 }, calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), true).show()
             }
         )
+        // Messages d'erreur détaillés sur les champs date/heure
+        if (deadlineDateError) {
+            Text("⚠ La date limite est requise", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
+        if (deadlineHeureError) {
+            Text("⚠ L'heure limite est requise", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
+        if (perioDateError) {
+            Text("⚠ La date de la première occurrence est requise", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
+        if (perioHeureError) {
+            Text("⚠ L'heure de la première occurrence est requise", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
 
         Spacer(modifier = Modifier.height(32.dp))
         Button(
             onClick = {
+                // Validation
+                var valid = true
+                if (titre.isBlank()) { titreError = true; valid = false }
+                if (!hasDeadline && !hasPeriodicity) { temporaliteError = true; valid = false }
+                if (hasDeadline) {
+                    if (dateLimite.isEmpty()) { deadlineDateError = true; valid = false }
+                    if (heureLimite.isEmpty()) { deadlineHeureError = true; valid = false }
+                }
+                if (hasPeriodicity) {
+                    if (periodicityStartDate.isEmpty()) { perioDateError = true; valid = false }
+                    if (periodicityStartHeure.isEmpty()) { perioHeureError = true; valid = false }
+                }
+                if (!valid) return@Button
+
                 val task = Task(
                     titre = titre,
                     description = description.ifBlank { null },
@@ -1283,6 +1341,14 @@ fun EditTaskFormScreen(navController: NavHostController, taskViewModel: TaskView
     var periodicityStartDate by remember { mutableStateOf(taskToEdit?.nextOccurrence?.substringBefore(" ") ?: taskToEdit?.dateLimite ?: "") }
     var periodicityStartHeure by remember { mutableStateOf(taskToEdit?.nextOccurrence?.substringAfter(" ") ?: taskToEdit?.heureLimite ?: "") }
 
+    // Erreurs de validation
+    var titreError by remember { mutableStateOf(false) }
+    var temporaliteError by remember { mutableStateOf(false) }
+    var deadlineDateError by remember { mutableStateOf(false) }
+    var deadlineHeureError by remember { mutableStateOf(false) }
+    var perioDateError by remember { mutableStateOf(false) }
+    var perioHeureError by remember { mutableStateOf(false) }
+
     val context = LocalContext.current
     val calendar = remember { Calendar.getInstance() }
 
@@ -1329,10 +1395,13 @@ fun EditTaskFormScreen(navController: NavHostController, taskViewModel: TaskView
         Spacer(modifier = Modifier.height(24.dp))
 
         // Titre
-        Text("Titre", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyLarge)
+        Text("Titre *", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyLarge)
         OutlinedTextField(
-            value = titre, onValueChange = { titre = it },
+            value = titre,
+            onValueChange = { titre = it; titreError = false },
             placeholder = { Text("Titre ...") },
+            isError = titreError,
+            supportingText = if (titreError) {{ Text("Le titre est obligatoire", color = MaterialTheme.colorScheme.error) }} else null,
             colors = TextFieldDefaults.colors(
                 focusedContainerColor = MaterialTheme.colorScheme.surface,
                 unfocusedContainerColor = MaterialTheme.colorScheme.surface,
@@ -1365,42 +1434,81 @@ fun EditTaskFormScreen(navController: NavHostController, taskViewModel: TaskView
         )
 
         // Section périodicité
+        if (temporaliteError) {
+            Text(
+                text = "⚠ Choisissez une date limite ou une périodicité",
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
+        }
         PeriodicitySection(
             hasDeadline = hasDeadline,
-            onHasDeadlineChange = { hasDeadline = it },
+            onHasDeadlineChange = { hasDeadline = it; temporaliteError = false; deadlineDateError = false; deadlineHeureError = false },
             dateLimite = dateLimite,
             onDateClick = {
                 DatePickerDialog(context, { _, y, m, d ->
                     dateLimite = String.format(Locale.getDefault(), "%04d-%02d-%02d", y, m + 1, d)
+                    deadlineDateError = false
                 }, calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH), calendar.get(Calendar.DAY_OF_MONTH)).show()
             },
             heureLimite = heureLimite,
             onHeureClick = {
                 TimePickerDialog(context, { _, h, min ->
                     heureLimite = String.format(Locale.getDefault(), "%02d:%02d", h, min)
+                    deadlineHeureError = false
                 }, calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), true).show()
             },
             hasPeriodicity = hasPeriodicity,
-            onHasPeriodicityChange = { hasPeriodicity = it },
+            onHasPeriodicityChange = { hasPeriodicity = it; temporaliteError = false; perioDateError = false; perioHeureError = false },
             periodicity = periodicity,
             onPeriodicityChange = { periodicity = it },
             periodicityStartDate = periodicityStartDate,
             onPeriodicityDateClick = {
                 DatePickerDialog(context, { _, y, m, d ->
                     periodicityStartDate = String.format(Locale.getDefault(), "%04d-%02d-%02d", y, m + 1, d)
+                    perioDateError = false
                 }, calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH), calendar.get(Calendar.DAY_OF_MONTH)).show()
             },
             periodicityStartHeure = periodicityStartHeure,
             onPeriodicityHeureClick = {
                 TimePickerDialog(context, { _, h, min ->
                     periodicityStartHeure = String.format(Locale.getDefault(), "%02d:%02d", h, min)
+                    perioHeureError = false
                 }, calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), true).show()
             }
         )
+        // Messages d'erreur détaillés sur les champs date/heure
+        if (deadlineDateError) {
+            Text("⚠ La date limite est requise", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
+        if (deadlineHeureError) {
+            Text("⚠ L'heure limite est requise", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
+        if (perioDateError) {
+            Text("⚠ La date de la première occurrence est requise", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
+        if (perioHeureError) {
+            Text("⚠ L'heure de la première occurrence est requise", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
 
         Spacer(modifier = Modifier.height(32.dp))
         Button(
             onClick = {
+                // Validation
+                var valid = true
+                if (titre.isBlank()) { titreError = true; valid = false }
+                if (!hasDeadline && !hasPeriodicity) { temporaliteError = true; valid = false }
+                if (hasDeadline) {
+                    if (dateLimite.isEmpty()) { deadlineDateError = true; valid = false }
+                    if (heureLimite.isEmpty()) { deadlineHeureError = true; valid = false }
+                }
+                if (hasPeriodicity) {
+                    if (periodicityStartDate.isEmpty()) { perioDateError = true; valid = false }
+                    if (periodicityStartHeure.isEmpty()) { perioHeureError = true; valid = false }
+                }
+                if (!valid) return@Button
+
                 if (taskToEdit != null) {
                     val updatedTask = taskToEdit.copy(
                         titre = titre,
