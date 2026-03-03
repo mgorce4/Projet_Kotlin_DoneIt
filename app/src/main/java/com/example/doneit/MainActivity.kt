@@ -604,11 +604,21 @@ fun TaskCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = task.titre,
-                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onPrimary
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = task.titre,
+                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (task.priorite != null) {
+                        Text(
+                            text = priorityEmoji(task.priorite),
+                            fontSize = 18.sp,
+                            modifier = Modifier.padding(start = 4.dp)
+                        )
+                    }
+                }
                 Text(
                     text = task.description ?: "Description...",
                     style = MaterialTheme.typography.bodyMedium,
@@ -711,11 +721,21 @@ fun DoneTaskCard(task: Task, color: Color, onDelete: () -> Unit, onHardDelete: (
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = task.titre,
-                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onPrimary
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = task.titre,
+                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (task.priorite != null) {
+                        Text(
+                            text = priorityEmoji(task.priorite),
+                            fontSize = 18.sp,
+                            modifier = Modifier.padding(start = 4.dp)
+                        )
+                    }
+                }
                 Text(
                     text = task.description ?: "Description...",
                     style = MaterialTheme.typography.bodyMedium,
@@ -958,6 +978,98 @@ fun PeriodicitySection(
     }
 }
 
+// ── Icône de priorité ─────────────────────────────────────────────────────
+
+fun priorityEmoji(priorite: Int?): String = when (priorite) {
+    1 -> "🪶"
+    2 -> "🌿"
+    3 -> "⚡"
+    4 -> "🔥"
+    5 -> "⚠️"
+    else -> ""
+}
+
+fun priorityLabel(priorite: Int?): String = when (priorite) {
+    1 -> "Très faible"
+    2 -> "Faible"
+    3 -> "Modérée"
+    4 -> "Élevée"
+    5 -> "Critique"
+    else -> "Aucune"
+}
+
+@Composable
+fun PrioritySelector(
+    selectedPriority: Int?,
+    onPriorityChange: (Int?) -> Unit
+) {
+    Text(
+        "Priorité",
+        color = MaterialTheme.colorScheme.onSurface,
+        style = MaterialTheme.typography.bodyLarge
+    )
+    Spacer(modifier = Modifier.height(8.dp))
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        // Bouton "Aucune"
+        val noneSelected = selectedPriority == null
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = if (noneSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+            modifier = Modifier
+                .clickable { onPriorityChange(null) }
+                .padding(2.dp)
+        ) {
+            Text(
+                text = "—",
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                color = if (noneSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center
+            )
+        }
+        // Boutons 1 à 5
+        for (p in 1..5) {
+            val isSelected = selectedPriority == p
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { onPriorityChange(p) }
+            ) {
+                Column(
+                    modifier = Modifier.padding(vertical = 6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = priorityEmoji(p),
+                        fontSize = 20.sp,
+                        textAlign = TextAlign.Center
+                    )
+                    Text(
+                        text = "$p",
+                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                        style = MaterialTheme.typography.bodySmall,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+    }
+    if (selectedPriority != null) {
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "Priorité ${priorityLabel(selectedPriority)}",
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+            style = MaterialTheme.typography.bodySmall
+        )
+    }
+    Spacer(modifier = Modifier.height(16.dp))
+}
+
 // ── AddTaskFormScreen ─────────────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -965,6 +1077,7 @@ fun PeriodicitySection(
 fun AddTaskFormScreen(navController: NavHostController, taskViewModel: TaskViewModel) {
     var titre by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
+    var priorite by remember { mutableStateOf<Int?>(null) }
     // Date limite classique
     var hasDeadline by remember { mutableStateOf(false) }
     var dateLimite by remember { mutableStateOf("") }
@@ -1032,6 +1145,12 @@ fun AddTaskFormScreen(navController: NavHostController, taskViewModel: TaskViewM
         )
         Spacer(modifier = Modifier.height(24.dp))
 
+        // Priorité
+        PrioritySelector(
+            selectedPriority = priorite,
+            onPriorityChange = { priorite = it }
+        )
+
         // Section périodicité
         PeriodicitySection(
             hasDeadline = hasDeadline,
@@ -1074,7 +1193,7 @@ fun AddTaskFormScreen(navController: NavHostController, taskViewModel: TaskViewM
                     description = description.ifBlank { null },
                     dateLimite = if (hasDeadline && dateLimite.isNotEmpty()) dateLimite else null,
                     heureLimite = if (hasDeadline && heureLimite.isNotEmpty()) heureLimite else null,
-                    priorite = null, photoUrl = null, xpReward = null,
+                    priorite = priorite, photoUrl = null, xpReward = null,
                     status = TaskStatus.TODO,
                     periodicity = if (hasPeriodicity) periodicity else PeriodicityType.NONE,
                     nextOccurrence = if (hasPeriodicity && periodicityStartDate.isNotEmpty() && periodicityStartHeure.isNotEmpty())
@@ -1153,6 +1272,7 @@ fun ProfileScreen(navController: NavHostController, taskViewModel: TaskViewModel
 fun EditTaskFormScreen(navController: NavHostController, taskViewModel: TaskViewModel, taskToEdit: Task?) {
     var titre by remember { mutableStateOf(taskToEdit?.titre ?: "") }
     var description by remember { mutableStateOf(taskToEdit?.description ?: "") }
+    var priorite by remember { mutableStateOf<Int?>(taskToEdit?.priorite) }
     // Date limite
     var hasDeadline by remember { mutableStateOf(taskToEdit?.periodicity == PeriodicityType.NONE && taskToEdit.dateLimite != null) }
     var dateLimite by remember { mutableStateOf(taskToEdit?.dateLimite ?: "") }
@@ -1170,6 +1290,7 @@ fun EditTaskFormScreen(navController: NavHostController, taskViewModel: TaskView
         if (taskToEdit != null) {
             titre = taskToEdit.titre
             description = taskToEdit.description ?: ""
+            priorite = taskToEdit.priorite
             hasPeriodicity = taskToEdit.periodicity != PeriodicityType.NONE
             hasDeadline = taskToEdit.periodicity == PeriodicityType.NONE && taskToEdit.dateLimite != null
             if (hasPeriodicity) {
@@ -1235,7 +1356,13 @@ fun EditTaskFormScreen(navController: NavHostController, taskViewModel: TaskView
             ),
             modifier = Modifier.fillMaxWidth()
         )
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Priorité
+        PrioritySelector(
+            selectedPriority = priorite,
+            onPriorityChange = { priorite = it }
+        )
 
         // Section périodicité
         PeriodicitySection(
@@ -1278,6 +1405,7 @@ fun EditTaskFormScreen(navController: NavHostController, taskViewModel: TaskView
                     val updatedTask = taskToEdit.copy(
                         titre = titre,
                         description = description.ifBlank { null },
+                        priorite = priorite,
                         dateLimite = if (hasDeadline && dateLimite.isNotEmpty()) dateLimite else null,
                         heureLimite = if (hasDeadline && heureLimite.isNotEmpty()) heureLimite else null,
                         periodicity = if (hasPeriodicity) periodicity else PeriodicityType.NONE,
