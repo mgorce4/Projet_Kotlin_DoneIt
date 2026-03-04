@@ -65,4 +65,6 @@ dependencies {
     implementation(libs.roomPaging)
     // KSP for Kotlin - Required for Room to generate code
     ksp(libs.roomCompiler)
+    // Coil pour affichage d'images
+    implementation(libs.coilCompose)
 }

@@ -7,6 +7,7 @@ import android.app.NotificationManager
 import android.app.TimePickerDialog
 import android.content.Context
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.VibrationEffect
@@ -31,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -39,6 +41,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.room.Room
+import coil.compose.AsyncImage
 import com.example.doneit.data.AppDatabase
 import com.example.doneit.viewmodel.TaskViewModel
 import com.example.doneit.viewmodel.Rank
@@ -72,9 +75,13 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import java.io.File
 import java.util.Calendar
 import java.util.Locale
+import java.util.UUID
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -89,6 +96,27 @@ import androidx.compose.foundation.rememberScrollState
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
+
+/** Copie une image depuis une URI externe vers le stockage interne de l'app et retourne le chemin absolu */
+fun copyImageToInternal(context: Context, sourceUri: Uri): String? {
+    return try {
+        val dir = File(context.filesDir, "task_photos").also { it.mkdirs() }
+        val dest = File(dir, "${UUID.randomUUID()}.jpg")
+        context.contentResolver.openInputStream(sourceUri)?.use { input ->
+            dest.outputStream().use { output -> input.copyTo(output) }
+        }
+        dest.absolutePath
+    } catch (e: Exception) {
+        null
+    }
+}
+
+/** Crée un fichier temporaire pour la photo caméra et retourne son URI FileProvider */
+fun createCameraImageUri(context: Context): Uri {
+    val dir = File(context.externalCacheDir, "camera_photos").also { it.mkdirs() }
+    val file = File(dir, "camera_${UUID.randomUUID()}.jpg")
+    return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+}
 
 class TaskViewModelFactory(
     private val taskDao: com.example.doneit.data.TaskDao,
@@ -765,24 +793,15 @@ fun TaskCard(
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.Top
         ) {
+            // ── Colonne gauche : titre, description, date, photo ──
             Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = task.titre,
-                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.weight(1f)
-                    )
-                    if (task.priorite != null) {
-                        Text(
-                            text = priorityEmoji(task.priorite),
-                            fontSize = 18.sp,
-                            modifier = Modifier.padding(start = 4.dp)
-                        )
-                    }
-                }
+                Text(
+                    text = task.titre,
+                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
                 Text(
                     text = task.description ?: "Description...",
                     style = MaterialTheme.typography.bodyMedium,
@@ -809,19 +828,36 @@ fun TaskCard(
                         color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
                     )
                 }
+                if (task.photoUrl != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    AsyncImage(
+                        model = File(task.photoUrl),
+                        contentDescription = "Photo de la tâche",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(72.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                    )
+                }
             }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Row {
+            Spacer(modifier = Modifier.width(8.dp))
+            // ── Colonne droite : [priorité + stylo + poubelle] puis checkbox ──
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                // Ligne 1 : priorité + stylo + poubelle alignés horizontalement
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (task.priorite != null) {
+                        Text(
+                            text = priorityEmoji(task.priorite),
+                            fontSize = 18.sp,
+                            modifier = Modifier.padding(end = 2.dp)
+                        )
+                    }
                     if (onEdit != null) {
-                        IconButton(
-                            onClick = { onEdit() },
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Edit,
-                                contentDescription = "Modifier",
-                                tint = MaterialTheme.colorScheme.onPrimary
-                            )
+                        IconButton(onClick = { onEdit() }, modifier = Modifier.size(36.dp)) {
+                            Icon(Icons.Filled.Edit, contentDescription = "Modifier", tint = MaterialTheme.colorScheme.onPrimary)
                         }
                     }
                     if (onDelete != null) {
@@ -832,23 +868,16 @@ fun TaskCard(
                             },
                             modifier = Modifier.size(36.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Filled.Delete,
-                                contentDescription = "Supprimer",
-                                tint = MaterialTheme.colorScheme.onPrimary
-                            )
+                            Icon(Icons.Filled.Delete, contentDescription = "Supprimer", tint = MaterialTheme.colorScheme.onPrimary)
                         }
                     }
                 }
+                // Ligne 2 : checkbox
                 Surface(
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clickable { onCheck() }
-                ) {
-                    // Checkbox non cochée
-                }
+                    modifier = Modifier.size(36.dp).clickable { onCheck() }
+                ) { /* Checkbox non cochée */ }
             }
         }
     }
@@ -882,24 +911,15 @@ fun DoneTaskCard(task: Task, color: Color, onDelete: () -> Unit, onHardDelete: (
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.Top
         ) {
+            // ── Colonne gauche : titre, description, date, photo ──
             Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = task.titre,
-                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.weight(1f)
-                    )
-                    if (task.priorite != null) {
-                        Text(
-                            text = priorityEmoji(task.priorite),
-                            fontSize = 18.sp,
-                            modifier = Modifier.padding(start = 4.dp)
-                        )
-                    }
-                }
+                Text(
+                    text = task.titre,
+                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
                 Text(
                     text = task.description ?: "Description...",
                     style = MaterialTheme.typography.bodyMedium,
@@ -926,9 +946,34 @@ fun DoneTaskCard(task: Task, color: Color, onDelete: () -> Unit, onHardDelete: (
                         color = MaterialTheme.colorScheme.onPrimary
                     )
                 }
+                // Photo en bas à gauche
+                if (task.photoUrl != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    AsyncImage(
+                        model = File(task.photoUrl),
+                        contentDescription = "Photo de la tâche",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(72.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                    )
+                }
             }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Row {
+            Spacer(modifier = Modifier.width(8.dp))
+            // ── Colonne droite : [priorité + poubelle] puis checkbox ──
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                // Ligne 1 : priorité + poubelle alignés horizontalement
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (task.priorite != null) {
+                        Text(
+                            text = priorityEmoji(task.priorite),
+                            fontSize = 18.sp,
+                            modifier = Modifier.padding(end = 2.dp)
+                        )
+                    }
                     // Icône poubelle pour suppression définitive
                     IconButton(
                         onClick = {
@@ -937,20 +982,14 @@ fun DoneTaskCard(task: Task, color: Color, onDelete: () -> Unit, onHardDelete: (
                         },
                         modifier = Modifier.size(36.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Filled.Delete,
-                            contentDescription = "Supprimer définitivement",
-                            tint = MaterialTheme.colorScheme.onPrimary
-                        )
+                        Icon(Icons.Filled.Delete, contentDescription = "Supprimer définitivement", tint = MaterialTheme.colorScheme.onPrimary)
                     }
                 }
-                // Checkbox cochée pour décocher
+                // Ligne 2 : checkbox cochée
                 Surface(
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.secondary,
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clickable { onDelete() }
+                    modifier = Modifier.size(36.dp).clickable { onDelete() }
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Text("X", color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.bodyLarge)
@@ -1234,6 +1273,105 @@ fun PrioritySelector(
     Spacer(modifier = Modifier.height(16.dp))
 }
 
+// ── Sélecteur de photo réutilisable ──────────────────────────────────────
+
+@Composable
+fun PhotoPickerSection(
+    photoPath: String?,
+    onPhotoPicked: (String?) -> Unit
+) {
+    val context = LocalContext.current
+
+    // Caméra : URI temporaire pour TakePicture
+    var cameraUri by remember { mutableStateOf<Uri?>(null) }
+
+    val galleryLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            val path = copyImageToInternal(context, uri)
+            onPhotoPicked(path)
+        }
+    }
+
+    val cameraLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success) {
+            cameraUri?.let { uri ->
+                // Copie depuis le cache externe vers le stockage interne
+                val path = copyImageToInternal(context, uri)
+                onPhotoPicked(path)
+            }
+        }
+    }
+
+    val cameraPermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            val uri = createCameraImageUri(context)
+            cameraUri = uri
+            cameraLauncher.launch(uri)
+        }
+    }
+
+    Text("Photo", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyLarge)
+    Spacer(modifier = Modifier.height(8.dp))
+
+    // Aperçu de la photo ou placeholder
+    if (photoPath != null) {
+        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            AsyncImage(
+                model = File(photoPath),
+                contentDescription = "Photo de la tâche",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(160.dp)
+                    .clip(RoundedCornerShape(12.dp))
+            )
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+    }
+
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Button(
+            onClick = { galleryLauncher.launch("image/*") },
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface),
+            modifier = Modifier.weight(1f)
+        ) {
+            Text("🖼 Galerie", color = MaterialTheme.colorScheme.onSurface)
+        }
+        Button(
+            onClick = {
+                if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA)
+                    == PackageManager.PERMISSION_GRANTED
+                ) {
+                    val uri = createCameraImageUri(context)
+                    cameraUri = uri
+                    cameraLauncher.launch(uri)
+                } else {
+                    cameraPermLauncher.launch(Manifest.permission.CAMERA)
+                }
+            },
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface),
+            modifier = Modifier.weight(1f)
+        ) {
+            Text("📷 Caméra", color = MaterialTheme.colorScheme.onSurface)
+        }
+        if (photoPath != null) {
+            Button(
+                onClick = { onPhotoPicked(null) },
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+            ) {
+                Icon(Icons.Filled.Delete, contentDescription = "Supprimer photo", tint = MaterialTheme.colorScheme.onError)
+            }
+        }
+    }
+    Spacer(modifier = Modifier.height(16.dp))
+}
+
 // ── AddTaskFormScreen ─────────────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1242,6 +1380,7 @@ fun AddTaskFormScreen(navController: NavHostController, taskViewModel: TaskViewM
     var titre by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     var priorite by remember { mutableStateOf<Int?>(null) }
+    var photoPath by remember { mutableStateOf<String?>(null) }
     // Date limite classique
     var hasDeadline by remember { mutableStateOf(false) }
     var dateLimite by remember { mutableStateOf("") }
@@ -1326,6 +1465,12 @@ fun AddTaskFormScreen(navController: NavHostController, taskViewModel: TaskViewM
             onPriorityChange = { priorite = it }
         )
 
+        // Photo
+        PhotoPickerSection(
+            photoPath = photoPath,
+            onPhotoPicked = { photoPath = it }
+        )
+
         // Section périodicité
         if (temporaliteError) {
             Text(
@@ -1407,7 +1552,7 @@ fun AddTaskFormScreen(navController: NavHostController, taskViewModel: TaskViewM
                     description = description.ifBlank { null },
                     dateLimite = if (hasDeadline && dateLimite.isNotEmpty()) dateLimite else null,
                     heureLimite = if (hasDeadline && heureLimite.isNotEmpty()) heureLimite else null,
-                    priorite = priorite, photoUrl = null, xpReward = null,
+                    priorite = priorite, photoUrl = photoPath, xpReward = null,
                     status = TaskStatus.TODO,
                     periodicity = if (hasPeriodicity) periodicity else PeriodicityType.NONE,
                     nextOccurrence = if (hasPeriodicity && periodicityStartDate.isNotEmpty() && periodicityStartHeure.isNotEmpty())
@@ -1658,6 +1803,7 @@ fun EditTaskFormScreen(navController: NavHostController, taskViewModel: TaskView
     var titre by remember { mutableStateOf(taskToEdit?.titre ?: "") }
     var description by remember { mutableStateOf(taskToEdit?.description ?: "") }
     var priorite by remember { mutableStateOf<Int?>(taskToEdit?.priorite) }
+    var photoPath by remember { mutableStateOf<String?>(taskToEdit?.photoUrl) }
     // Date limite
     var hasDeadline by remember { mutableStateOf(taskToEdit?.periodicity == PeriodicityType.NONE && taskToEdit.dateLimite != null) }
     var dateLimite by remember { mutableStateOf(taskToEdit?.dateLimite ?: "") }
@@ -1684,6 +1830,7 @@ fun EditTaskFormScreen(navController: NavHostController, taskViewModel: TaskView
             titre = taskToEdit.titre
             description = taskToEdit.description ?: ""
             priorite = taskToEdit.priorite
+            photoPath = taskToEdit.photoUrl
             hasPeriodicity = taskToEdit.periodicity != PeriodicityType.NONE
             hasDeadline = taskToEdit.periodicity == PeriodicityType.NONE && taskToEdit.dateLimite != null
             if (hasPeriodicity) {
@@ -1758,6 +1905,12 @@ fun EditTaskFormScreen(navController: NavHostController, taskViewModel: TaskView
         PrioritySelector(
             selectedPriority = priorite,
             onPriorityChange = { priorite = it }
+        )
+
+        // Photo
+        PhotoPickerSection(
+            photoPath = photoPath,
+            onPhotoPicked = { photoPath = it }
         )
 
         // Section périodicité
@@ -1841,6 +1994,7 @@ fun EditTaskFormScreen(navController: NavHostController, taskViewModel: TaskView
                         titre = titre,
                         description = description.ifBlank { null },
                         priorite = priorite,
+                        photoUrl = photoPath,
                         dateLimite = if (hasDeadline && dateLimite.isNotEmpty()) dateLimite else null,
                         heureLimite = if (hasDeadline && heureLimite.isNotEmpty()) heureLimite else null,
                         periodicity = if (hasPeriodicity) periodicity else PeriodicityType.NONE,
