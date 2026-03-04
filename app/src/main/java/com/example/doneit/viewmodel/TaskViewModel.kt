@@ -1,5 +1,6 @@
 package com.example.doneit.viewmodel
 
+import android.content.SharedPreferences
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.doneit.data.PeriodicityType
@@ -15,7 +16,36 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
-class TaskViewModel(private val taskDao: TaskDao) : ViewModel() {
+// ── Système de rangs ──────────────────────────────────────────────────────
+
+data class Rank(val name: String, val threshold: Int, val emoji: String)
+
+val RANKS = listOf(
+    Rank("Débutant.e",             0,    "🌱"),
+    Rank("Apprenti.e réalisateur.rice", 5,    "📝"),
+    Rank("Organisateur.rice",         10,   "📋"),
+    Rank("Stratège",             25,   "🎯"),
+    Rank("Expert.e",               50,   "⭐"),
+    Rank("Maître.sse des tâches",               100,  "🏆"),
+    Rank("Légende des tâches",              500,  "💎"),
+    Rank("Dieu de la tâche",     1000, "👑")
+)
+
+fun getRankForCount(count: Int): Rank = RANKS.lastOrNull { count >= it.threshold } ?: RANKS.first()
+fun getNextRank(count: Int): Rank? = RANKS.firstOrNull { count < it.threshold }
+
+/** Progression (0f..1f) entre le rang actuel et le suivant */
+fun getRankProgress(count: Int): Float {
+    val current = getRankForCount(count)
+    val next = getNextRank(count) ?: return 1f
+    val range = (next.threshold - current.threshold).toFloat()
+    val progress = (count - current.threshold).toFloat()
+    return (progress / range).coerceIn(0f, 1f)
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+
+class TaskViewModel(private val taskDao: TaskDao, private val prefs: SharedPreferences? = null) : ViewModel() {
 
     // Lister toutes les tâches (Observé par l'UI)
     val allTasks: Flow<List<Task>> = taskDao.getAllTask()
@@ -27,6 +57,29 @@ class TaskViewModel(private val taskDao: TaskDao) : ViewModel() {
     // Signal pour déclencher une notif overdue dans l'UI
     private val _overdueEvent = MutableStateFlow<Task?>(null)
     val overdueEvent: StateFlow<Task?> = _overdueEvent
+
+    // Signal pour déclencher une animation de montée de rang
+    private val _rankUpEvent = MutableStateFlow<Rank?>(null)
+    val rankUpEvent: StateFlow<Rank?> = _rankUpEvent
+
+    // Compteur cumulatif de tâches accomplies (persisté dans SharedPreferences)
+    private val _totalTasksDone = MutableStateFlow(prefs?.getInt("total_tasks_done", 0) ?: 0)
+    val totalTasksDone: StateFlow<Int> = _totalTasksDone
+
+    fun consumeRankUpEvent() { _rankUpEvent.value = null }
+
+    private fun incrementTasksDone() {
+        val oldCount = _totalTasksDone.value
+        val newCount = oldCount + 1
+        _totalTasksDone.value = newCount
+        prefs?.edit()?.putInt("total_tasks_done", newCount)?.apply()
+        // Vérifie si on a atteint un nouveau rang
+        val oldRank = getRankForCount(oldCount)
+        val newRank = getRankForCount(newCount)
+        if (newRank.threshold != oldRank.threshold) {
+            _rankUpEvent.value = newRank
+        }
+    }
 
     init {
         // Polling toutes les 60 secondes pour reset tâches périodiques et check overdue
@@ -149,6 +202,7 @@ class TaskViewModel(private val taskDao: TaskDao) : ViewModel() {
                 taskDao.updateTask(updatedTask)
                 _waouEvent.value = updatedTask
             }
+            incrementTasksDone()
         }
     }
 

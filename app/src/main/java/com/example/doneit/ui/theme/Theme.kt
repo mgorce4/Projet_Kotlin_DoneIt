@@ -19,7 +19,7 @@ private val DarkColorScheme = darkColorScheme(
     onSurface = White,
     secondary = LightPurple,
     onSecondary = Black,
-    error = MainPurple,
+    error = LightPurple,
     onError = White,
     tertiary = LightGrey
 )

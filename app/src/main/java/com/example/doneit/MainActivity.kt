@@ -21,6 +21,7 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -40,6 +41,11 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.room.Room
 import com.example.doneit.data.AppDatabase
 import com.example.doneit.viewmodel.TaskViewModel
+import com.example.doneit.viewmodel.Rank
+import com.example.doneit.viewmodel.RANKS
+import com.example.doneit.viewmodel.getRankForCount
+import com.example.doneit.viewmodel.getNextRank
+import com.example.doneit.viewmodel.getRankProgress
 import com.example.doneit.ui.theme.DoneItTheme
 import kotlinx.coroutines.delay
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -84,11 +90,14 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
 
-class TaskViewModelFactory(private val taskDao: com.example.doneit.data.TaskDao) : ViewModelProvider.Factory {
+class TaskViewModelFactory(
+    private val taskDao: com.example.doneit.data.TaskDao,
+    private val prefs: android.content.SharedPreferences
+) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(TaskViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return TaskViewModel(taskDao) as T
+            return TaskViewModel(taskDao, prefs) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }
@@ -153,8 +162,9 @@ class MainActivity : ComponentActivity() {
 
         enableEdgeToEdge()
         setContent {
+            val doneitPrefs = getSharedPreferences("doneit_prefs", Context.MODE_PRIVATE)
             val taskViewModel: TaskViewModel = viewModel(
-                factory = TaskViewModelFactory(database.taskDao())
+                factory = TaskViewModelFactory(database.taskDao(), doneitPrefs)
             )
             // Demande permission notification (Android 13+)
             val notifPermLauncher = rememberLauncherForActivityResult(
@@ -266,6 +276,69 @@ fun WaouOverlay(onDismiss: () -> Unit) {
     }
 }
 
+// ── RankUp Overlay ──────────────────────────────────────────────────────────
+
+@Composable
+fun RankUpOverlay(rank: Rank, onDismiss: () -> Unit) {
+    val alpha = remember { Animatable(0f) }
+    val scale = remember { Animatable(0.4f) }
+
+    LaunchedEffect(Unit) {
+        // Apparition
+        alpha.animateTo(1f, animationSpec = tween(400))
+        scale.animateTo(1f, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy))
+        // Attendre
+        delay(2800)
+        // Disparition
+        alpha.animateTo(0f, animationSpec = tween(400))
+        onDismiss()
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xAA000000))
+            .clickable { /* bloquer le clic en dessous */ },
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .alpha(alpha.value)
+                .graphicsLayer(scaleX = scale.value, scaleY = scale.value)
+                .background(MaterialTheme.colorScheme.background, RoundedCornerShape(24.dp))
+                .padding(horizontal = 40.dp, vertical = 32.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = rank.emoji,
+                    fontSize = 64.sp
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "Nouveau rang !",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = rank.name,
+                    style = MaterialTheme.typography.displayMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Dès ${rank.threshold} tâches accomplies",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                )
+            }
+        }
+    }
+}
+
 // ── AppNavigation ──────────────────────────────────────────────────────────
 
 @Composable
@@ -302,6 +375,7 @@ fun HomeScreen(navController: NavHostController, taskViewModel: TaskViewModel) {
     var expandedTodoFilter by remember { mutableStateOf(false) }
     var expandedDoneFilter by remember { mutableStateOf(false) }
     var showWaou by remember { mutableStateOf(false) }
+    var rankUpRank by remember { mutableStateOf<Rank?>(null) }
 
     val context = LocalContext.current
 
@@ -312,6 +386,15 @@ fun HomeScreen(navController: NavHostController, taskViewModel: TaskViewModel) {
             vibrateDevice(context)
             showWaou = true
             taskViewModel.consumeWaouEvent()
+        }
+    }
+
+    // Observe le rang-up event
+    val rankUpEvent by taskViewModel.rankUpEvent.collectAsStateWithLifecycle()
+    LaunchedEffect(rankUpEvent) {
+        if (rankUpEvent != null) {
+            rankUpRank = rankUpEvent
+            taskViewModel.consumeRankUpEvent()
         }
     }
 
@@ -364,6 +447,14 @@ fun HomeScreen(navController: NavHostController, taskViewModel: TaskViewModel) {
     }
 
     var expandedDone by remember { mutableStateOf(true) }
+    val totalDone by taskViewModel.totalTasksDone.collectAsStateWithLifecycle()
+    val currentRank = getRankForCount(totalDone)
+    val nextRank = getNextRank(totalDone)
+    val rankProgress = getRankProgress(totalDone)
+    val animatedRankProgress = remember { Animatable(0f) }
+    LaunchedEffect(rankProgress) {
+        animatedRankProgress.animateTo(rankProgress, animationSpec = tween(700, easing = FastOutSlowInEasing))
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -396,6 +487,67 @@ fun HomeScreen(navController: NavHostController, taskViewModel: TaskViewModel) {
                 Icon(Icons.Filled.Person, contentDescription = "Profile", tint = MaterialTheme.colorScheme.onSurface)
             }
         }
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // ── Jauge de rang ─────────────────────────────────────────────
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Jauge
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(10.dp)
+                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(5.dp))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(animatedRankProgress.value)
+                        .height(10.dp)
+                        .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(5.dp))
+                )
+            }
+            Spacer(modifier = Modifier.width(10.dp))
+            // Trophée cliquable → page profil
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
+                    .clickable { navController.navigate("profile") },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = currentRank.emoji,
+                    fontSize = 20.sp
+                )
+            }
+        }
+        // Texte sous la jauge : rang actuel + prochain palier
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 3.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = currentRank.name,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+            )
+            if (nextRank != null) {
+                Text(
+                    text = "${nextRank.threshold - totalDone} tâche${if (nextRank.threshold - totalDone > 1) "s" else ""} → ${nextRank.name}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                )
+            } else {
+                Text(
+                    text = "Rang max 👑",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+        // ─────────────────────────────────────────────────────────────
         Spacer(modifier = Modifier.height(16.dp))
 
         // Section Tâches à effectuer
@@ -531,6 +683,10 @@ fun HomeScreen(navController: NavHostController, taskViewModel: TaskViewModel) {
         // Overlay confettis "Effet Waou"
         if (showWaou) {
             WaouOverlay(onDismiss = { showWaou = false })
+        }
+        // Overlay montée de rang
+        rankUpRank?.let { rank ->
+            RankUpOverlay(rank = rank, onDismiss = { rankUpRank = null })
         }
     } // fin Box
 }
@@ -1272,13 +1428,25 @@ fun AddTaskFormScreen(navController: NavHostController, taskViewModel: TaskViewM
 fun ProfileScreen(navController: NavHostController, taskViewModel: TaskViewModel) {
     val tasks = taskViewModel.allTasks.collectAsStateWithLifecycle(initialValue = emptyList())
     val doneCount = tasks.value.count { it.status == TaskStatus.DONE }
+    val totalDone by taskViewModel.totalTasksDone.collectAsStateWithLifecycle()
+    val currentRank = getRankForCount(totalDone)
+    val nextRank = getNextRank(totalDone)
+    val progress = getRankProgress(totalDone)
+
+    // Animation de la jauge
+    val animatedProgress = remember { Animatable(0f) }
+    LaunchedEffect(progress) {
+        animatedProgress.animateTo(progress, animationSpec = tween(900, easing = FastOutSlowInEasing))
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
             .padding(16.dp)
+            .verticalScroll(rememberScrollState())
     ) {
-        // Header avec logo DoneIt! qui retourne à HomeScreen
+        // Header
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.Start,
@@ -1297,19 +1465,178 @@ fun ProfileScreen(navController: NavHostController, taskViewModel: TaskViewModel
                 )
             }
         }
-        Spacer(modifier = Modifier.height(120.dp))
-        // Affichage du nombre de tâches effectuées
-        Box(
-            modifier = Modifier.fillMaxWidth(),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "Vous avez réalisé $doneCount tâche.s !",
-                color = MaterialTheme.colorScheme.onSurface,
-                style = MaterialTheme.typography.bodyLarge
-            )
-        }
         Spacer(modifier = Modifier.height(32.dp))
+
+        // Carte de rang
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            shape = RoundedCornerShape(20.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(text = currentRank.emoji, fontSize = 56.sp)
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = currentRank.name,
+                    style = MaterialTheme.typography.displayMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "$totalDone tâche${if (totalDone > 1) "s" else ""} accomplie${if (totalDone > 1) "s" else ""} au total",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                )
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Jauge de progression
+                if (nextRank != null) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = currentRank.emoji + " ${currentRank.threshold}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+                        Text(
+                            text = "${nextRank.threshold} " + nextRank.emoji,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(14.dp)
+                            .background(MaterialTheme.colorScheme.background, RoundedCornerShape(7.dp))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(animatedProgress.value)
+                                .height(14.dp)
+                                .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(7.dp))
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Prochain rang : ${nextRank.name} ${nextRank.emoji} (encore ${nextRank.threshold - totalDone} tâche${if (nextRank.threshold - totalDone > 1) "s" else ""})",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    // Rang maximum atteint
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(14.dp)
+                            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(7.dp))
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "🎉 Rang maximum atteint !",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Tous les rangs
+        Text(
+            text = "Tous les rangs",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        RANKS.forEach { rank ->
+            val unlocked = totalDone >= rank.threshold
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+                    .background(
+                        if (rank == currentRank) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                        else MaterialTheme.colorScheme.surface,
+                        RoundedCornerShape(10.dp)
+                    )
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (unlocked) rank.emoji else "🔒",
+                    fontSize = 24.sp
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = rank.name,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = if (rank == currentRank) FontWeight.Bold else FontWeight.Normal,
+                        color = if (unlocked) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                    )
+                    Text(
+                        text = if (rank.threshold == 0) "Rang de départ" else "Dès ${rank.threshold} tâches",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                    )
+                }
+                if (rank == currentRank) {
+                    Text(
+                        text = "← Actuel",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        // Statistiques rapides
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Text(
+                    text = "Statistiques",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(text = "$doneCount", style = MaterialTheme.typography.displayMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                        Text(text = "En cours (DONE)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), textAlign = TextAlign.Center)
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(text = "$totalDone", style = MaterialTheme.typography.displayMedium, color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.Bold)
+                        Text(text = "Total accompli", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), textAlign = TextAlign.Center)
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
+
         // Bouton pour vider la base de données
         Button(
             onClick = { taskViewModel.clearAllTasks() },
