@@ -91,6 +91,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import kotlin.math.cos
@@ -392,6 +393,12 @@ fun AppNavigation(modifier: Modifier = Modifier, taskViewModel: TaskViewModel) {
             val editTask = tasks.value.find { it.id == taskId }
             EditTaskFormScreen(navController = navController, taskViewModel = taskViewModel, taskToEdit = editTask)
         }
+        // Détail plein écran d'une tâche
+        composable("taskDetail/{taskId}") { backStackEntry ->
+            val taskId = backStackEntry.arguments?.getString("taskId")?.toLongOrNull()
+            val task = tasks.value.find { it.id == taskId }
+            TaskDetailScreen(navController = navController, task = task)
+        }
     }
 }
 
@@ -631,7 +638,8 @@ fun HomeScreen(navController: NavHostController, taskViewModel: TaskViewModel) {
                         color = if (task.status == TaskStatus.OVERDUE) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
                         onCheck = { taskViewModel.completeTaskWithReward(task) },
                         onEdit = { navController.navigate("editTaskForm/${task.id}") },
-                        onDelete = { taskViewModel.deleteTaskManually(task) }
+                        onDelete = { taskViewModel.deleteTaskManually(task) },
+                        onClick = { navController.navigate("taskDetail/${task.id}") }
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                 }
@@ -701,7 +709,8 @@ fun HomeScreen(navController: NavHostController, taskViewModel: TaskViewModel) {
                             val newStatus = if (endMillis > 0 && endMillis < System.currentTimeMillis()) TaskStatus.OVERDUE else TaskStatus.TODO
                             taskViewModel.updateTask(task.copy(status = newStatus))
                         },
-                        onHardDelete = { taskViewModel.deleteTaskManually(task) }
+                        onHardDelete = { taskViewModel.deleteTaskManually(task) },
+                        onClick = { navController.navigate("taskDetail/${task.id}") }
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                 }
@@ -766,7 +775,8 @@ fun TaskCard(
     color: Color,
     onCheck: () -> Unit,
     onEdit: (() -> Unit)? = null,
-    onDelete: (() -> Unit)? = null
+    onDelete: (() -> Unit)? = null,
+    onClick: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("doneit_prefs", Context.MODE_PRIVATE) }
@@ -789,7 +799,9 @@ fun TaskCard(
     Card(
         colors = CardDefaults.cardColors(containerColor = color),
         shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
@@ -885,7 +897,7 @@ fun TaskCard(
 
 // ── DoneTaskCard ──────────────────────────────────────────────────────────────
 @Composable
-fun DoneTaskCard(task: Task, color: Color, onDelete: () -> Unit, onHardDelete: () -> Unit) {
+fun DoneTaskCard(task: Task, color: Color, onDelete: () -> Unit, onHardDelete: () -> Unit, onClick: (() -> Unit)? = null) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("doneit_prefs", Context.MODE_PRIVATE) }
     var showDialog by remember { mutableStateOf(false) }
@@ -907,7 +919,9 @@ fun DoneTaskCard(task: Task, color: Color, onDelete: () -> Unit, onHardDelete: (
     Card(
         colors = CardDefaults.cardColors(containerColor = color),
         shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
@@ -997,6 +1011,203 @@ fun DoneTaskCard(task: Task, color: Color, onDelete: () -> Unit, onHardDelete: (
                 }
             }
         }
+    }
+}
+
+// ── TaskDetailScreen ──────────────────────────────────────────────────────────
+@Composable
+fun TaskDetailScreen(navController: NavHostController, task: Task?) {
+    if (task == null) {
+        LaunchedEffect(Unit) { navController.popBackStack() }
+        return
+    }
+
+    val statusLabel = when (task.status) {
+        TaskStatus.TODO -> "À faire"
+        TaskStatus.DONE -> "Effectuée ✅"
+        TaskStatus.OVERDUE -> "En retard ⚠️"
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .verticalScroll(rememberScrollState())
+    ) {
+        // Top bar : flèche retour
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = {
+                navController.navigate("home") {
+                    popUpTo("home") { inclusive = false }
+                }
+            }) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Retour accueil",
+                    tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+        }
+
+        // ── Contenu détail ──
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 8.dp)
+        ) {
+            // Titre
+            Text(
+                text = task.titre,
+                style = MaterialTheme.typography.displaySmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Badge statut
+            Box(
+                modifier = Modifier
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    text = statusLabel,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+            HorizontalDivider()
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // Description
+            Text(
+                text = "Description",
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = task.description ?: "Aucune description",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+            )
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // Date / Périodicité
+            Text(
+                text = "Planification",
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            if (task.periodicity != PeriodicityType.NONE) {
+                val perioLabel = when (task.periodicity) {
+                    PeriodicityType.DAILY -> "Quotidienne"
+                    PeriodicityType.WEEKLY -> "Hebdomadaire"
+                    PeriodicityType.MONTHLY -> "Mensuelle"
+                    else -> ""
+                }
+                DetailInfoRow(label = "Type", value = "Tâche périodique — $perioLabel")
+                val nextDate = task.nextOccurrence
+                    ?: if (task.dateLimite != null && task.heureLimite != null) "${task.dateLimite} ${task.heureLimite}" else "Non défini"
+                DetailInfoRow(label = "Prochaine occurrence", value = nextDate)
+            } else {
+                DetailInfoRow(label = "Date limite", value = task.dateLimite ?: "Non définie")
+                DetailInfoRow(label = "Heure limite", value = task.heureLimite ?: "Non définie")
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // Priorité
+            Text(
+                text = "Priorité",
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            if (task.priorite != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = priorityEmoji(task.priorite),
+                        fontSize = 28.sp
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = "${task.priorite} — ${priorityLabel(task.priorite)}",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            } else {
+                Text(
+                    text = "Aucune priorité définie",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                )
+            }
+
+            // Photo
+            if (task.photoUrl != null) {
+                Spacer(modifier = Modifier.height(20.dp))
+                Text(
+                    text = "Photo",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                AsyncImage(
+                    model = File(task.photoUrl),
+                    contentDescription = "Photo de la tâche",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(220.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                )
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+        }
+    }
+}
+
+// ── Ligne info réutilisable dans TaskDetailScreen ─────────────────────────────
+@Composable
+fun DetailInfoRow(label: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+            modifier = Modifier.weight(0.45f)
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(0.55f)
+        )
     }
 }
 
@@ -2012,3 +2223,4 @@ fun EditTaskFormScreen(navController: NavHostController, taskViewModel: TaskView
         }
     }
 }
+
